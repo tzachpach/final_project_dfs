@@ -1,0 +1,3 @@
+features = ['Home', 'MP', 'FG', 'FGA', 'FG%',
+            '3P', '3PA', '3P%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 'AST',
+            'STL', 'BLK', 'TOV', 'PF', 'PTS', '+/-', 'COST']
