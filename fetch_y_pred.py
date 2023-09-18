@@ -8,7 +8,7 @@ import xgboost as xgb
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import LabelEncoder
 
-def predict_dkfp(train_data, should_train=False, should_plot=False):
+def predict_dkfp(train_data, should_train=False, should_plot=True):
     label_encoders = {}
     train_data['year'] = train_data['date'].dt.year
     train_data['month'] = train_data['date'].dt.month

@@ -4,17 +4,32 @@ import numpy as np
 import pandas as pd
 from fuzzywuzzy import process
 
-def data_loader(n=10):
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def data_loader(seasons_to_reduce= 10, n=10):
     # Load and preprocess data
-    res_df = load_basic_data()
-    ctg_df = load_ctg_data()
+    res_df = load_data(seasons_to_reduce)
+
+    logging.info("Loaded basic data.")
+    ctg_df = load_data(seasons_to_reduce, ctg_flag=True)
     ctg_df = ctg_df[['player', 'season', 'age', 'pos']]
 
+    logging.info("Loaded ctg data.")
+
     res_df = standardize_names(res_df, ctg_df)
+    logging.info("Standardized names.")
+
     res_df = pd.merge(res_df, ctg_df, on=['player', 'season'], how='left')
+    logging.info("Merged dataframes.")
 
     res_df['dkfp'] = res_df.apply(calculate_draftkings_fantasy_points, axis=1)
+    logging.info("Calculated DKFP.")
+
     res_df['cost'] = res_df.apply(randomly_assign_a_pricetag, axis=1)
+    logging.info("Assigned random price tags.")
+
     res_df['date'] = pd.to_datetime(res_df['date'])
     # remove playoff games, work and learn only from regular season games:
     res_df['is_reg_season'] = res_df['date'].apply(lambda x: x.month in [10, 11, 12, 1, 2, 3, 4])
@@ -24,16 +39,17 @@ def data_loader(n=10):
     res_df = res_df.sort_values(by=['date', 'player'], ascending=False)
 
     res_df_no_mv = res_df.dropna(how='all')
-    # gb_player = res_df_no_mv.groupby('Player').mean()
-    # gb_over_10_mins = gb_player[gb_player['MP'] >= n].index
-    # res_df_no_mv_over_10_mins = res_df_no_mv[res_df_no_mv['Player'].isin(gb_player)]
-    res_df_no_mv_over_10_mins = res_df_no_mv.reset_index()
+
+    gb_player = res_df_no_mv.groupby('Player').mean()
+    gb_over_10_mins = gb_player[gb_player['MP'] >= n].index
+    res_df_no_mv_over_10_mins = res_df_no_mv[res_df_no_mv['Player'].isin(gb_over_10_mins)]
+    res_df_no_mv_over_10_mins = res_df_no_mv_over_10_mins.reset_index()
     res_df_no_mv_over_10_mins = res_df_no_mv_over_10_mins.drop('index', axis=1)
 
-    print(f'Dropped {len(res_df) - len(res_df_no_mv)} empty rows')
-    print(f'Dropped {len(res_df_no_mv) - len(res_df_no_mv_over_10_mins)} players with under {n} minutes')
+    logging.info(f'Dropped {len(res_df) - len(res_df_no_mv)} empty rows')
+    logging.info(f'Dropped {len(res_df_no_mv) - len(res_df_no_mv_over_10_mins)} players with under {n} minutes')
 
-    print('Number of players in the dataset: {}'.format(len(res_df_no_mv)))
+    logging.info('Number of players in the dataset: {}'.format(len(res_df_no_mv)))
 
     num_previous_games = [5, 10]
     columns_to_roll = [i.lower() for i in ['MP', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB',
@@ -45,26 +61,11 @@ def data_loader(n=10):
                                                                             min_periods=1).mean().reset_index(drop=True)})
     rolling_features_df = pd.DataFrame().from_dict(rolling_features)
 
+    logging.info("Added rolling features.")
     res_df_no_mv_over_10_mins = pd.concat([res_df_no_mv_over_10_mins, rolling_features_df], axis=1)
     train_data = res_df_no_mv_over_10_mins[[col for col in res_df_no_mv_over_10_mins.columns if col not in columns_to_roll]]
 
     return train_data
-
-
-def load_basic_data():
-    all_year_files = os.listdir('data')
-    all_year_files = [file for file in all_year_files if file.endswith('.csv')]
-    all_year_files = [file for file in all_year_files if file.startswith('201')]
-    res_df = pd.DataFrame()
-    for i in range(len(all_year_files) - 9):
-        file_name = all_year_files[i].split('.')[0]
-        season_df = pd.read_csv('data/' + all_year_files[i])
-        season_df['season'] = file_name.replace('-', '/')
-        res_df = pd.concat([res_df, season_df])
-    res_df.columns = res_df.columns.str.lower()
-    res_df = res_df.drop('gamelink', axis=1)
-    return res_df
-
 
 def calculate_draftkings_fantasy_points(row):
     fantasy_points = (
@@ -97,18 +98,48 @@ def randomly_assign_a_pricetag(row):
     return max(random_number * performance + random_cut, 2)
 
 
-def load_ctg_data():
-    ctg_df = pd.DataFrame()
-    all_year_files = os.listdir('data/cleaning_the_glass')
-    all_year_files = [file for file in all_year_files if file.endswith('.csv')]
-    for i in range(len(all_year_files) - 9):
-        season_df = pd.read_csv('data/cleaning_the_glass/' + all_year_files[i])
-        file_name = all_year_files[i].split('.')[0].split('_')
-        season_df['season'] = f"{file_name[-2]}/{file_name[-1]}"
-        ctg_df = pd.concat([ctg_df, season_df])
+def load_data(seasons_to_reduce, ctg_flag=False):
+    """
+    Load data from either the basic dataset or the 'cleaning_the_glass' dataset based on the ctg_flag.
 
-    ctg_df.columns = ctg_df.columns.str.lower()
-    return ctg_df
+    Parameters:
+    - seasons_to_reduce (int): Number of seasons to exclude from the end.
+    - ctg_flag (bool): If True, load 'cleaning_the_glass' data. Otherwise, load basic data.
+
+    Returns:
+    - DataFrame: Loaded and processed data.
+    """
+
+    if ctg_flag:
+        directory = 'data/cleaning_the_glass'
+        file_prefix = ''
+        season_separator = '_'
+    else:
+        directory = 'data'
+        file_prefix = '201'
+        season_separator = '-'
+
+    all_year_files = [file for file in os.listdir(directory) if file.endswith('.csv') and file.startswith(file_prefix)]
+
+    df = pd.DataFrame()
+    for i in range(len(all_year_files) - seasons_to_reduce):
+        if ctg_flag:
+            file_name_parts = all_year_files[i].split('.')[0].split(season_separator)
+            season = f"{file_name_parts[-2]}/{file_name_parts[-1]}"
+        else:
+            file_name_parts = all_year_files[i].split('.')[0]
+            season = file_name_parts.replace(season_separator, '/')
+
+        season_df = pd.read_csv(os.path.join(directory, all_year_files[i]))
+        season_df['season'] = season
+        df = pd.concat([df, season_df])
+
+    df.columns = df.columns.str.lower()
+    if not ctg_flag:
+        df = df.drop('gamelink', axis=1)
+
+    return df
+
 
 def standardize_names(res_df, ctg_df):
     ctg_df_names = ctg_df['player'].unique()
@@ -128,5 +159,3 @@ def standardize_names(res_df, ctg_df):
     # replace the names in ctg_df
     res_df['player'] = res_df['player'].replace(name_mapping)
     return res_df
-
-data_loader()
