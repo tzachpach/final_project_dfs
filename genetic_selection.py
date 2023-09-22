@@ -5,13 +5,8 @@ import numpy as np
 import pandas as pd
 from deap import base, creator, tools, algorithms
 
-from IDC.final_project.data_loader import data_loader
-from IDC.final_project.fetch_y_pred import predict_dkfp
-
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Define your data (replace this with your actual data)
 
 def get_lineup(data):
 
@@ -40,16 +35,14 @@ def get_lineup(data):
         date_res.append({
             "date": date,
             "max_num_of_players": len(data_filtered),
-            "best_lineup": [data_filtered.iloc[i]["player"] for i in best_individual],
-            "is_repeat": len(best_individual) - len(np.unique(best_individual)),
-            "best_pred_score": sum(data_filtered.iloc[i]["y_pred"] for i in best_individual),
-            "best_cost": sum(data_filtered.iloc[i]["cost"] for i in best_individual),
-            "best_actual_score": sum(data_filtered.iloc[i]["dkfp"] for i in best_individual),
-            "best_lineup_pred": [data_filtered_pred.iloc[i]["player"] for i in best_individual_pred],
-            "is_repeat_pred": len(best_individual_pred) - len(np.unique(best_individual_pred)),
-            "best_pred_score_pred": sum(data_filtered_pred.iloc[i]["y_pred"] for i in best_individual_pred),
-            "best_cost_pred": sum(data_filtered_pred.iloc[i]["cost"] for i in best_individual_pred),
-            "best_actual_score_pred": sum(data_filtered_pred.iloc[i]["dkfp"] for i in best_individual_pred)
+            "lineup_ideal": [data_filtered.iloc[i]["player"] for i in best_individual],
+            "predicted_score_ideal": sum(data_filtered.iloc[i]["y_pred"] for i in best_individual),
+            "cost_ideal": sum(data_filtered.iloc[i]["cost"] for i in best_individual),
+            "actual_score_ideal": sum(data_filtered.iloc[i]["dkfp"] for i in best_individual),
+            "lineup_selected": [data_filtered_pred.iloc[i]["player"] for i in best_individual_pred],
+            "predicted_score_selected": sum(data_filtered_pred.iloc[i]["y_pred"] for i in best_individual_pred),
+            "cost_selected": sum(data_filtered_pred.iloc[i]["cost"] for i in best_individual_pred),
+            "actual_score_selected": sum(data_filtered_pred.iloc[i]["dkfp"] for i in best_individual_pred)
 
         })
 
@@ -121,21 +114,3 @@ def get_best_lineup(date, data, pred_flag=False, salary_cap=1200, num_players_se
     # Get the best individual from the final population
     best_individual = tools.selBest(population, k=1)[0]
     return data_filtered, best_individual
-
-
-data = data_loader()
-data = predict_dkfp(data,should_train=True, should_plot=True)
-res = get_lineup(data)
-res.to_csv('all_res.csv')
-# TODO: understand the current bug with the repeating players
-# TODO: start talking to mentors
-
-
-# TODO: read up on deep q learning
-# TODO: understand why RL and if RL is really needed to solve
-# TODO: manipulate the results and find some KPIs
-
-# TODO: get better data - ctg
-# TODO: get better data - basketball reference
-# TODO: get better data - fanduel
-# TODO: get better data - draftkings

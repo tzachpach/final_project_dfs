@@ -8,7 +8,7 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def data_loader(seasons_to_reduce= 10, n=10):
+def data_loader(seasons_to_reduce=0, n=10):
     # Load and preprocess data
     res_df = load_data(seasons_to_reduce)
 
@@ -40,9 +40,9 @@ def data_loader(seasons_to_reduce= 10, n=10):
 
     res_df_no_mv = res_df.dropna(how='all')
 
-    gb_player = res_df_no_mv.groupby('Player').mean()
-    gb_over_10_mins = gb_player[gb_player['MP'] >= n].index
-    res_df_no_mv_over_10_mins = res_df_no_mv[res_df_no_mv['Player'].isin(gb_over_10_mins)]
+    gb_player = res_df_no_mv.groupby('player').mean()
+    gb_over_10_mins = gb_player[gb_player['mp'] >= n].index
+    res_df_no_mv_over_10_mins = res_df_no_mv[res_df_no_mv['player'].isin(gb_over_10_mins)]
     res_df_no_mv_over_10_mins = res_df_no_mv_over_10_mins.reset_index()
     res_df_no_mv_over_10_mins = res_df_no_mv_over_10_mins.drop('index', axis=1)
 
