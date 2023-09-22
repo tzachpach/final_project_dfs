@@ -58,9 +58,27 @@ def get_best_lineup(date, data, pred_flag=False, salary_cap=1200, num_players_se
     # Define the genetic operators
     toolbox = base.Toolbox()
 
+    def generate_individual(data_filtered, num_players_selected):
+        # Segment players based on some attribute, e.g., cost
+        low_cost_players = data_filtered[data_filtered['cost'] < data_filtered['cost'].quantile(0.33)].index.tolist()
+        mid_cost_players = data_filtered[(data_filtered['cost'] >= data_filtered['cost'].quantile(0.33)) &
+                                         (data_filtered['cost'] < data_filtered['cost'].quantile(0.66))].index.tolist()
+        high_cost_players = data_filtered[data_filtered['cost'] >= data_filtered['cost'].quantile(0.66)].index.tolist()
+
+        # Randomly sample players from each segment
+        lineup = random.sample(low_cost_players, num_players_selected // 3) + \
+                 random.sample(mid_cost_players, num_players_selected // 3) + \
+                 random.sample(high_cost_players, num_players_selected - 2 * (num_players_selected // 3))
+
+        # Shuffle the lineup to introduce more diversity
+        random.shuffle(lineup)
+
+        return lineup
+
     # Generate a random permutation of the players and then select the first num_players_selected players
     toolbox.register("attr_unique", random.sample, range(len(data_filtered)), num_players_selected)
-    toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.attr_unique)
+    toolbox.register("individual", tools.initIterate, creator.Individual,
+                     lambda: generate_individual(data_filtered, num_players_selected))
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
     # Custom fitness function that penalizes salary cap violations

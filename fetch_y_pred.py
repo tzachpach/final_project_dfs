@@ -29,6 +29,10 @@ def predict_dkfp(train_data, should_train=False, should_plot=True):
     y = y.drop('cost', axis=1)
 
     tscv = TimeSeriesSplit(n_splits=5)
+    for train_index, test_index in tscv.split(X):
+        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
     if should_train:
         print("Training model...")
         xg_reg = xgb.XGBRegressor(objective='reg:squarederror', random_state=42)
@@ -43,7 +47,7 @@ def predict_dkfp(train_data, should_train=False, should_plot=True):
                                    scoring='neg_mean_squared_error', cv=tscv,
                                    verbose=1, n_jobs=-1)
 
-        grid_search.fit(X, y)
+        grid_search.fit(X_train, y_train)
         best_model = grid_search.best_estimator_
         joblib.dump(best_model, 'xgboost_best_.pkl')
 
@@ -51,38 +55,30 @@ def predict_dkfp(train_data, should_train=False, should_plot=True):
         print("Loading model...")
         best_model = joblib.load('xgboost_best_.pkl')
 
-    y_pred = best_model.predict(X)
+    y_pred = best_model.predict(X_test)
 
     print("Predicted DKFP values:", y_pred)
 
-    player_inv_transformed = label_encoders['player'].inverse_transform(X['player'])
-    team_inv_transformed = label_encoders['team'].inverse_transform(X['team'])
-    against_inv_transformed = label_encoders['against'].inverse_transform(X['against'])
-    pos_inv_transformed = label_encoders['pos'].inverse_transform(X['pos'])
-    season_inv_transformed = label_encoders['season'].inverse_transform(X['season'])
+    # Inverse transform the label encoded columns
+    test_df = X_test.copy()
+    for col in categorical_columns:
+        test_df[col] = label_encoders[col].inverse_transform(test_df[col])
 
-    test_df = X.copy()
     test_df['y_pred'] = y_pred
-    test_df['cost'] = cost
-    test_df['dkfp'] = y['dkfp']
+    test_df['cost'] = cost.iloc[test_index]
+    test_df['dkfp'] = y_test['dkfp']
 
-    test_df['player'] = player_inv_transformed
-    test_df['team'] = team_inv_transformed
-    test_df['against'] = against_inv_transformed
-    test_df['pos'] = pos_inv_transformed
-    test_df['season'] = season_inv_transformed
-
-    mae = mean_absolute_error(y, y_pred)
+    mae = mean_absolute_error(y_test, y_pred)
     print("Mean Absolute Error:", mae)
 
-    mse = mean_squared_error(y, y_pred)
+    mse = mean_squared_error(y_test, y_pred)
     print("Mean Squared Error:", mse)
 
     rmse = np.sqrt(mse)
     print("Root Mean Squared Error:", rmse)
 
     if should_plot:
-        plot_results(y['dkfp'], y_pred)
+        plot_results(y_test['dkfp'], y_pred)
     return test_df
 
 def plot_results(y_test, y_pred):
