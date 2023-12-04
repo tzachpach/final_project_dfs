@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from fuzzywuzzy import process
+from nba_api.stats.endpoints import leaguegamefinder, boxscoretraditionalv2, boxscoreadvancedv2
 
 def data_loader(n=10):
     # Load and preprocess data
@@ -177,4 +178,43 @@ def get_contest_data(period):
     df.to_csv(f'dfs_contests_{period}.csv', index=False)
 
 
-get_contest_data("2022-03-06")
+def get_game_by_game_data(season: str):
+    # Create an instance of the LeagueGameFinder endpoint
+    gamefinder = leaguegamefinder.LeagueGameFinder(season_nullable=season)  # Replace with your desired season
+
+    # Get DataFrame of all games
+    games_df = gamefinder.get_data_frames()[0]
+
+    # Extract the game IDs
+    game_ids = games_df['GAME_ID'].unique()
+
+
+    # Initialize an empty DataFrame to store all player stats
+    all_game_data_df = pd.DataFrame()
+
+    for game_id in game_ids:
+        # Fetch data for each game
+        traditional_boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id)
+        traditional_df = traditional_boxscore.player_stats.get_data_frame()
+
+        # Fetch advanced stats data
+        advanced_boxscore = boxscoreadvancedv2.BoxScoreAdvancedV2(game_id=game_id)
+        advanced_df = advanced_boxscore.player_stats.get_data_frame()
+
+        # Select columns to avoid duplicates
+        # Adjust the column names as per your requirement
+        cols_to_use = advanced_df.columns.difference(traditional_df.columns).tolist() + ['PLAYER_ID']
+        merged_df = pd.merge(traditional_df, advanced_df[cols_to_use], on='PLAYER_ID', how='left')
+
+        # Append to the main DataFrame
+        all_game_data_df = all_game_data_df.append(merged_df, ignore_index=True)
+
+    # Optionally, rename columns if needed
+    all_game_data_df.rename(columns={'MIN_x': 'MIN', 'TEAM_ID_x': 'TEAM_ID', 'PLAYER_NAME_x': 'PLAYER_NAME'},
+                            inplace=True)
+
+    return all_game_data_df
+
+# get_contest_data("2022-03-06")
+
+# get_game_by_game_data('2021-22').to_csv('2021-22_game_by_game.csv', index=False)
