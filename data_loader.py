@@ -1,5 +1,5 @@
 import os
-
+from IPython.display import display
 import numpy as np
 import pandas as pd
 from fuzzywuzzy import process
@@ -218,3 +218,19 @@ def get_game_by_game_data(season: str):
 # get_contest_data("2022-03-06")
 
 # get_game_by_game_data('2021-22').to_csv('2021-22_game_by_game.csv', index=False)
+
+# Load the NBA data from the text file
+nba_data_path = '/Users/yafo/Library/Mobile Documents/com~apple~CloudDocs/IDC MLDS MSc 2021/5_AI-Research/DFS/nba-2021.txt'
+
+# Read the file into a DataFrame
+nba_df = pd.read_csv(nba_data_path, delimiter="\t")
+
+# # Display the first few rows of the DataFrame to verify its structure
+# print(nba_df.head())
+
+# full description avail at http://rotoguru1.com/hoop/nba-dhd-2021-notes.txt
+csv_output_path = '/nba_2021_converted.csv'
+csv_path_2 = '/mnt/data/nba_2021_converted.csv'
+nba_df.to_csv(csv_output_path, index=False)
+nba_df.to_csv(csv_path_2, index=False)
+
