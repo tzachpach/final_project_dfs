@@ -27,6 +27,7 @@ def pull_historic_dfs_stat(start_date, end_date, existing_dfs_data):
     new_dates = list(set(dates) - set(existing_dates))
 
     for date in new_dates:  # dates
+        print(f'date = {date}')
         day = date[8:10]
         month = date[5:7]
         year = date[0:4]
