@@ -1,9 +1,17 @@
+import logging
 import os
 from IPython.display import display
 import numpy as np
 import pandas as pd
 from fuzzywuzzy import process
 from nba_api.stats.endpoints import leaguegamefinder, boxscoretraditionalv2, boxscoreadvancedv2
+import requests
+
+# CURRENTLY - we're just using the LAST FUNCTION. It gets game by game data for a season and saves it to a csv file.
+# It contains the basic box score stats and advanced stats for each player in each game of the season.
+
+# The other functions are from the previous project and are not used here.
+# We can consider adding them if we wanted to.
 
 def data_loader(n=10):
     # Load and preprocess data
@@ -144,12 +152,17 @@ def standardize_names(res_df, ctg_df):
     res_df['player'] = res_df['player'].replace(name_mapping)
     return res_df
 
-data_loader()
 
-import requests
+def get_contest_data(period: str ):
+    """
+    THIS CODE IS CURRENTLY NOT BEING USED AT ALL!
+    Get contest data for a given period - id, site, league,	slate, site_id, name, period, max_entries, max_entrants,
+    cost, prizepool, places_paid, total_entrants, winning_score mincash_score startdate, winning_payout,
+    mincash_payout, DateTime, Title  game_cnt, winner_cnt, winner has_lineups
 
-def get_contest_data(period):
-
+    :param period: The period for which you want the data
+    :return: DataFrame containing contest data for the given period
+    """
 
     url = (
         "https://www.fantasycruncher.com/funcs/tournament-analyzer/get-contests.php"
@@ -179,6 +192,12 @@ def get_contest_data(period):
 
 
 def get_game_by_game_data(season: str):
+    """
+    Get game by game data for a given season. Gets basic box score stats and advanced stats for each player in each game.
+    :param season: The season for which you want the data
+    :return: DataFrame containing game by game data for the given season
+    """
+
     # Create an instance of the LeagueGameFinder endpoint
     gamefinder = leaguegamefinder.LeagueGameFinder(season_nullable=season)  # Replace with your desired season
 
@@ -188,10 +207,9 @@ def get_game_by_game_data(season: str):
     # Extract the game IDs
     game_ids = games_df['GAME_ID'].unique()
 
-
-    # Initialize an empty DataFrame to store all player stats
-    all_game_data_df = pd.DataFrame()
-
+    # Initialize a list to store DataFrames
+    all_game_data_dfs = []
+    i = 0
     for game_id in game_ids:
         # Fetch data for each game
         traditional_boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id)
@@ -202,35 +220,42 @@ def get_game_by_game_data(season: str):
         advanced_df = advanced_boxscore.player_stats.get_data_frame()
 
         # Select columns to avoid duplicates
-        # Adjust the column names as per your requirement
         cols_to_use = advanced_df.columns.difference(traditional_df.columns).tolist() + ['PLAYER_ID']
         merged_df = pd.merge(traditional_df, advanced_df[cols_to_use], on='PLAYER_ID', how='left')
 
-        # Append to the main DataFrame
-        all_game_data_df = all_game_data_df.append(merged_df, ignore_index=True)
+        # Append DataFrame to the list
+        all_game_data_dfs.append(merged_df)
 
+        # Concatenate all DataFrames in the list vertically
+        all_game_data_df = pd.concat(all_game_data_dfs, ignore_index=True)
+        if i % 10 == 0:
+            logging.info(f'Processed game {game_id}')
+            logging.info(f'Already processed {i} games')
+        i += 1
     # Optionally, rename columns if needed
     all_game_data_df.rename(columns={'MIN_x': 'MIN', 'TEAM_ID_x': 'TEAM_ID', 'PLAYER_NAME_x': 'PLAYER_NAME'},
                             inplace=True)
 
     return all_game_data_df
 
+
 # get_contest_data("2022-03-06")
 
-# get_game_by_game_data('2021-22').to_csv('2021-22_game_by_game.csv', index=False)
+get_game_by_game_data('2020-21').to_csv('2021-22_game_by_game.csv', index=False)
 
 # Load the NBA data from the text file
-nba_data_path = '/Users/yafo/Library/Mobile Documents/com~apple~CloudDocs/IDC MLDS MSc 2021/5_AI-Research/DFS/nba-2021.txt'
+# nba_data_path = '/nba-2021.txt'
 
 # Read the file into a DataFrame
-nba_df = pd.read_csv(nba_data_path, delimiter="\t")
+# nba_df = pd.read_csv(nba_data_path, delimiter="\t")
 
 # # Display the first few rows of the DataFrame to verify its structure
 # print(nba_df.head())
 
 # full description avail at http://rotoguru1.com/hoop/nba-dhd-2021-notes.txt
-csv_output_path = '/nba_2021_converted.csv'
-csv_path_2 = '/mnt/data/nba_2021_converted.csv'
-nba_df.to_csv(csv_output_path, index=False)
-nba_df.to_csv(csv_path_2, index=False)
+# csv_output_path = '/nba_2021_converted.csv'
+# csv_path_2 = '/mnt/data/nba_2021_converted.csv'
+# nba_df.to_csv(csv_output_path, index=False)
+# nba_df.to_csv(csv_path_2, index=False)
 
+# data_loader()
