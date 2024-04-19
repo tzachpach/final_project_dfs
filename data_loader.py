@@ -97,12 +97,12 @@ def calculate_draftkings_fantasy_points(row):
 
 def calculate_fanduel_fantasy_points(row):
     fantasy_points = (
-            row['pts'] +
-            row['trb'] * 1.2 +
-            row['ast'] * 1.5 +
-            row['stl'] * 3 +
-            row['blk'] * 3 -
-            row['tov'] * 1
+            row['PTS'] +
+            row['REB'] * 1.2 +
+            row['AST'] * 1.5 +
+            row['STL'] * 3 +
+            row['BLK'] * 3 -
+            row['TOV'] * 1
     )
 
 
@@ -222,6 +222,9 @@ def get_game_by_game_data(season: str):
         # Select columns to avoid duplicates
         cols_to_use = advanced_df.columns.difference(traditional_df.columns).tolist() + ['PLAYER_ID']
         merged_df = pd.merge(traditional_df, advanced_df[cols_to_use], on='PLAYER_ID', how='left')
+
+        game_date = games_df.loc[games_df['GAME_ID'] == game_id, 'GAME_DATE'].iloc[0]  # Fetching first value assuming it's unique
+        merged_df['GAME_DATE'] = game_date
 
         # Append DataFrame to the list
         all_game_data_dfs.append(merged_df)
