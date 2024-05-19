@@ -7,7 +7,7 @@ from fuzzywuzzy import process
 from nba_api.stats.endpoints import leaguegamefinder, boxscoretraditionalv2, boxscoreadvancedv2
 import requests
 
-# CURRENTLY - we're just using the LAST FUNCTION. It gets game by game data for a season and saves it to a csv file.
+# CURRENTLY - we're just using the LAST FUNCTION (called "get game by game data"). It gets game by game data for a season and saves it to a csv file.
 # It contains the basic box score stats and advanced stats for each player in each game of the season.
 
 # The other functions are from the previous project and are not used here.

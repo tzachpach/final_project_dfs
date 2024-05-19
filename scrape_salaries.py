@@ -1,15 +1,17 @@
 from IPython.display import display_html
+from IPython.display import display
 import pandas as pd
 import numpy as np
 from datetime import date, datetime
 from dateutil import rrule
+import warnings
+warnings.filterwarnings("ignore")
 
 
+start_date = datetime.strptime('2018-10-16', '%Y-%m-%d')
+end_date = datetime.strptime('2019-04-10', '%Y-%m-%d')
 
-start_date = datetime.strptime('2021-10-01', '%Y-%m-%d')
-end_date = datetime.strptime('2023-05-03', '%Y-%m-%d')
-
-# print(f"Historic Salary Data: Execution Started for {start dare")
+# print(f"Historic Salary Data: Execution Started for {start date")
 # end_date = date.today()
 
 plyr_name = 'Player Name'
@@ -25,16 +27,18 @@ def pull_historic_dfs_stat(start_date, end_date, existing_dfs_data):
         dates.append(dt.date().strftime('%Y-%m-%d'))
     existing_dates = list(existing_dfs_data['Date'])
     new_dates = list(set(dates) - set(existing_dates))
+    print(f'new dates = {new_dates}')
 
     for date in new_dates:  # dates
-        print(f'date = {date}')
         day = date[8:10]
         month = date[5:7]
         year = date[0:4]
         html_string = 'http://rotoguru1.com/cgi-bin/hyday.pl?game=fd&mon=' + month + '&day=' + day + '&year=' + year
 
         html_data = pd.read_html(html_string)
+        # print(f'html = {html_data}')
         dfs_data = html_data[5]
+        # print (f'dfs_data ={dfs_data}')
 
         # using a try because some days have 0 games, ex: christmas eve
         try:
@@ -79,6 +83,5 @@ def pull_historic_dfs_stat(start_date, end_date, existing_dfs_data):
     # print
     existing_dfs_data.to_csv('historic_dfs_data.csv', index=False)
     return existing_dfs_data
-
 
 pull_historic_dfs_stat(start_date, end_date, existing_dfs_data)
