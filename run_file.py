@@ -5,8 +5,8 @@ from final_project_dfs.post_process import post_process_results
 
 if __name__ == '__main__':
     data = data_loader(seasons_to_reduce=8)
-    perdicted_data = predict_dkfp(data)
-    genetic_selection = get_lineup(perdicted_data)
+    pred_fp = predict_dkfp(data)
+    genetic_selection = get_lineup(pred_fp)
     genetic_selection.to_csv('genetic_selection.csv', index=False)
     per_row, gen_res = post_process_results(genetic_selection)
     per_row.to_csv('genetic_selection_res.csv', index=False)
