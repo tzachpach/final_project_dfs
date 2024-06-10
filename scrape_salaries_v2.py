@@ -1,30 +1,18 @@
-from IPython.display import display_html
-from IPython.display import display
 import pandas as pd
 import numpy as np
 from datetime import datetime
 from functools import reduce
 from dateutil import rrule
-import warnings
-warnings.filterwarnings("ignore")
 
 
-
-# TODO:
-# 1.go date by date, pull from all three, same preprocessing to all dfs, stick it to the right of each other
 
 common_columns = ['date', 'player_name', 'team', 'opp.', 'score']
 not_common_columns = ['yh_position', 'yh_points', 'yh_salary',
                       'fd_position', 'fd_points', 'fd_salary', 'dk_position', 'dk_points', 'dk_salary']
 
 end_cols = common_columns + not_common_columns
-games = ['yh','fd','dk']
-# # Load existing data
-# try:
-#     existing_dfs_data = pd.read_csv('output_csv/historic_dfs_data.csv').dropna()
-# except FileNotFoundError:
+games = ['yh', 'fd', 'dk']
 existing_dfs_data = pd.DataFrame(columns=end_cols)
-#
 
 def merge_dfs(dfs_dict):
     # Get the common columns from the first dataframe in the dictionary
