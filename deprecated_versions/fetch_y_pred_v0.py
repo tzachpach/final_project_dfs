@@ -49,11 +49,11 @@ def predict_dkfp(train_data, should_train=False, should_plot=True):
 
         grid_search.fit(X_train, y_train)
         best_model = grid_search.best_estimator_
-        joblib.dump(best_model, 'xgboost_best_.pkl')
+        joblib.dump(best_model, '../xgboost_best_.pkl')
 
     else:
         print("Loading model...")
-        best_model = joblib.load('xgboost_best_.pkl')
+        best_model = joblib.load('../xgboost_best_.pkl')
 
     y_pred = best_model.predict(X_test)
 
