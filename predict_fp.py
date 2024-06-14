@@ -9,15 +9,15 @@ from sklearn.svm import SVC
 from sklearn.metrics import confusion_matrix
 from matplotlib.colors import ListedColormap
 
-from sklearn.preprocessing import OneHotEncoder
+
+from fuzzywuzzy import fuzz
+from fuzzywuzzy import process
 
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
-
-from statsmodels.tsa.arima.model import ARIMA
 
 
 rolling_window = 10
@@ -159,7 +159,9 @@ def rolling_train_test(X, y, league_week_gb, player_name_to_id, num_weeks_for_tr
 
     })
     results_df['player_name'] = results_df['player_id'].apply(
-        lambda x: player_name_to_id[player_name_to_id['player_id'] == x].index[0])
+        lambda x: player_name_to_id[player_name_to_id['player_id'] == x]['player_name'].values[0])
+    results_df['team'] = results_df['player_id'].apply(
+        lambda x: player_name_to_id[player_name_to_id['player_id'] == x]['team'].values[0])
     return results_df
 
 def handle_missing_values(df):
@@ -217,6 +219,7 @@ def predict_fp(df, rolling_window=rolling_window):
     player_name_to_id = df.groupby('player_name')['player_id'].first()
     player_name_to_id = player_name_to_id.to_frame()
     player_name_to_id = player_name_to_id.reset_index()
+    player_name_to_id['team'] = player_name_to_id['player_id'].apply(lambda x: df[df['player_id'] == x]['team_abbreviation'].values[0])
 
     # Handle missing values
     df = handle_missing_values(df)
@@ -262,8 +265,8 @@ def predict_fp(df, rolling_window=rolling_window):
         # Train the model
         print(f'Training models for {cat}')
         print('---------------------------------')
-        results = rolling_train_test(X, y, league_week_gb, num_weeks_for_training=16, save_model=False,
-                                     player_name_to_id=player_name_to_id)
+        results = rolling_train_test(X=X, y=y, league_week_gb=league_week_gb, player_name_to_id=player_name_to_id,
+                                     save_model=False)
         results.to_csv(f'output_csv/{cat}_results.csv', index=False)
         total_results.update({f'{cat}_full data': results})
 
@@ -277,15 +280,11 @@ def predict_fp(df, rolling_window=rolling_window):
     combined_df = dfs[0]
 
     for df in dfs[1:]:
-        combined_df = pd.merge(combined_df, df, on=['game_id', 'player_id', 'player_name', 'game_date'], how='outer')
+        combined_df = pd.merge(combined_df, df, on=['game_id', 'player_id', 'player_name', 'game_date', 'team'], how='outer')
 
     # Add FP calculations:
-    combined_df['fp_fanduel'] = combined_df.apply(
-        lambda row: row['pts'] + row['reb'] * 1.2 + row['ast'] * 1.5 + row['stl'] * 3 + row['blk'] * 3 - row['to'] * 1,
-        axis=1)
-    combined_df['fp_fanduel_pred'] = combined_df.apply(
-        lambda row: row['pts_pred'] + row['reb_pred'] * 1.2 + row['ast_pred'] * 1.5 + row['stl_pred'] * 3 + row[
-            'blk_pred'] * 3 - row['to_pred'] * 1, axis=1)
+    combined_df['fp_fanduel'] = combined_df.apply(lambda row: calculate_fp_fanduel(row), axis=1)
+    combined_df['fp_fanduel_pred'] = combined_df.apply(lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1)
 
     combined_df['fp_yahoo'] = combined_df.apply(calculate_fp_yahoo, axis=1)
     combined_df['fp_yahoo_pred'] = combined_df.apply(lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1)
@@ -299,3 +298,4 @@ df = pd.read_csv('output_csv/2021-22_game_by_game.csv')
 df.columns = df.columns.str.lower()
 res = predict_fp(df)
 res.to_csv('fp_pred.csv')
+

@@ -238,7 +238,8 @@ def get_game_by_game_data(season: str):
     # Optionally, rename columns if needed
     all_game_data_df.rename(columns={'MIN_x': 'MIN', 'TEAM_ID_x': 'TEAM_ID', 'PLAYER_NAME_x': 'PLAYER_NAME'},
                             inplace=True)
-
+    relevant_teams = all_game_data_df.groupby('TEAM_ABBREVIATION').size().sort_values(ascending=False).head(30).index
+    all_game_data_df = all_game_data_df[all_game_data_df['TEAM_ABBREVIATION'].isin(relevant_teams)]
     return all_game_data_df
 
 
