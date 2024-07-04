@@ -135,11 +135,22 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
 
         # Get the positions of the selected players
         positions = [df_filtered.iloc[i][f'{platform.lower()}_position'] for i in individual]
+        position_count = {pos: 0 for pos in position_constraints.keys()}
+        for pos in positions:
+            pos_split = pos.split("/")
+            for p in pos_split:
+                if p in position_count:
+                    position_count[p] += 1
+                if p in ["PF", "SF"]:
+                    position_count["F"] += 1
+                if p in ["PG", "SG"]:
+                    position_count["G"] += 1
+            position_count["UTIL"] += 1  # Any position can count for UTIL
 
+        # Add a penalty for not meeting the positional constraints
         positional_penalty = 0
-        position_counts = {pos: positions.count(pos) for pos in position_constraints.keys()}
         for pos, required_count in position_constraints.items():
-            positional_penalty += abs(required_count - position_counts.get(pos, 0)) * 10
+            positional_penalty += abs(required_count - position_count[pos]) * 10
 
         # TODO: rework that last part, it doesn't really work with G/F and UTIL
         # Add a penalty for not meeting the positional constraints
