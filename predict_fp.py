@@ -21,6 +21,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 
 rolling_window = 10
+
 dfs_cats = ['reb', 'pts', 'ast', 'stl', 'blk', 'to']
 same_game_cols = ['min', 'fgm', 'fga', 'fg_pct', 'fg3m', 'fg3a', 'fg3_pct', 'ftm', 'fta', 'ft_pct',
                   'oreb', 'dreb', 'reb', 'ast', 'stl', 'blk', 'to', 'pf', 'pts',
