@@ -38,7 +38,7 @@ salary_constraints = {
             "C": 1
         }
     },
-    "drartkings": {
+    "draftkings": {
         "salary_cap": 50000,
         "positions": {
             "PG": 1,
@@ -79,8 +79,7 @@ def merge_fp_pred_and_salaries(fp_pred_df, salaries_df):
 
 def get_lineup(df):
 
-    df = df.reset_index()
-    df = df.drop('index', axis=1)
+    df = df.reset_index(drop=True)
 
     # Get the list of unique dates
     unique_dates = df['game_date'].unique()
@@ -92,21 +91,20 @@ def get_lineup(df):
             df_filtered, best_individual = get_best_lineup(date, df, platform)
             df_filtered_pred, best_individual_pred = get_best_lineup(date, df, platform, pred_flag=True)
 
-
             date_res.append({
                 "date": date,
                 f"max_num_of_players_{platform}": len(df_filtered),
                 f"best_actual_lineup_{platform}": [df_filtered.iloc[i]["player_name"] for i in best_individual],
                 f"best_pred_lineup_{platform}": [df_filtered_pred.iloc[i]["player_name"] for i in best_individual_pred],
                 f"best_actual_score_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual),
-                f"best_pred_score_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}_pred'] for i in best_individual),
+                f"best_pred_score_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}_pred'] for i in best_individual_pred),
                 f"best_actual_cost_{platform}": sum(df_filtered.iloc[i][f'{platform}_salary'] for i in best_individual),
                 f"best_pred_cost_{platform}": sum(df_filtered_pred.iloc[i][f'{platform}_salary'] for i in best_individual_pred),
                 "is_repeat": len(best_individual) - len(np.unique(best_individual)),
                 "is_repeat_pred": len(best_individual_pred) - len(np.unique(best_individual_pred)),
             })
 
-    return pd.dfFrame(date_res)
+    return pd.DataFrame(date_res)
 
 def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
     df_filtered = df[df['game_date'] == date].reset_index(drop=True)
@@ -134,27 +132,23 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
         total_score = sum(df_filtered.iloc[i][pred_col] for i in individual)
 
         # Get the positions of the selected players
-        positions = [df_filtered.iloc[i][f'{platform.lower()}_position'] for i in individual]
         position_count = {pos: 0 for pos in position_constraints.keys()}
-        for pos in positions:
-            pos_split = pos.split("/")
+        for i in individual:
+            pos_split = df_filtered.iloc[i][f'{platform.lower()}_position'].split("/")
             for p in pos_split:
                 if p in position_count:
                     position_count[p] += 1
-                if p in ["PF", "SF"]:
+                if p in ["PF", "SF"] and "F" in position_count:
                     position_count["F"] += 1
-                if p in ["PG", "SG"]:
+                if p in ["PG", "SG"] and "G" in position_count:
                     position_count["G"] += 1
             position_count["UTIL"] += 1  # Any position can count for UTIL
 
         # Add a penalty for not meeting the positional constraints
         positional_penalty = 0
         for pos, required_count in position_constraints.items():
-            positional_penalty += abs(required_count - position_count[pos]) * 10
-
-        # TODO: rework that last part, it doesn't really work with G/F and UTIL
-        # Add a penalty for not meeting the positional constraints
-        # Currently we demand 2 bigs, 2 forwards and 2 points and the rest is whatever
+            if pos != "UTIL":  # Skip UTIL as it can be any position
+                positional_penalty += max(0, required_count - position_count[pos]) * 10
 
         fitness = total_score - penalty - positional_penalty
         return fitness,
@@ -178,7 +172,7 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
     population = toolbox.population(n=min(len(df_filtered), 50))
 
     # Run the genetic algorithm
-    algorithms.eaSimple(population, toolbox, cxpb=0.5, mutpb=0.2, ngen=10)
+    algorithms.eaSimple(population, toolbox, cxpb=0.5, mutpb=0.2, ngen=10, verbose=False)
 
     # Get the best individual from the final population
     best_individual = tools.selBest(population, k=1)[0]
