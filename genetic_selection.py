@@ -35,7 +35,9 @@ salary_constraints = {
             "SG": 2,
             "SF": 2,
             "PF": 2,
-            "C": 1
+            "C": 1,
+            "UTIL": 0  # Any position
+
         }
     },
     "draftkings": {
@@ -60,22 +62,22 @@ def get_best_match(name, name_list, threshold=80):
     else:
         return None
 
-def merge_fp_pred_and_salaries(fp_pred_df, salaries_df):
-    name_mapping = {}
-    prices_names = set(salaries_df['player_name'].tolist())
-    for name in set(fp_pred_df['player_name']):
-        if name == 'Juan Hernangomez': # Comfusion with Willy Hernangomez
-            continue
-        best_match = get_best_match(name, prices_names)
-        if best_match:
-            name_mapping[name] = best_match
-        if best_match and name != best_match:
-            print(name, best_match)
-    fp_pred_df['player_name'] = fp_pred_df['player_name'].map(name_mapping).fillna(fp_pred_df['player_name'])
-    fp_pred_df['team'] = fp_pred_df['team'].apply(lambda x: x.lower())
-    # Merge dfFrames on 'player_name' and 'game_date' (date in df2)
-    merged_df = pd.merge(fp_pred_df, salaries_df, left_on=['player_name', 'game_date'], right_on=['player_name', 'date'], how='left')
-    return merged_df
+# def merge_fp_pred_and_salaries(fp_pred_df):
+#     name_mapping = {}
+#     prices_names = set(salaries_df['player_name'].tolist())
+#     for name in set(fp_pred_df['player_name']):
+#         if name == 'Juan Hernangomez': # Comfusion with Willy Hernangomez
+#             continue
+#         best_match = get_best_match(name, prices_names)
+#         if best_match:
+#             name_mapping[name] = best_match
+#         if best_match and name != best_match:
+#             print(name, best_match)
+#     fp_pred_df['player_name'] = fp_pred_df['player_name'].map(name_mapping).fillna(fp_pred_df['player_name'])
+#     fp_pred_df['team'] = fp_pred_df['team'].apply(lambda x: x.lower())
+#     # Merge dfFrames on 'player_name' and 'game_date' (date in df2)
+#     # merged_df = pd.merge(fp_pred_df, salaries_df, left_on=['player_name', 'game_date'], right_on=['player_name', 'date'], how='left')
+#     return merged_df
 
 def get_lineup(df):
 
@@ -87,12 +89,13 @@ def get_lineup(df):
 
     # For each unique date, run the GA and get the best lineup
     for date in unique_dates:
+        spec_date = {"date": date}
+        logging.info(f"Running for {date}")
         for platform in ['yahoo', 'fanduel', 'draftkings']:
             df_filtered, best_individual = get_best_lineup(date, df, platform)
             df_filtered_pred, best_individual_pred = get_best_lineup(date, df, platform, pred_flag=True)
 
-            date_res.append({
-                "date": date,
+            spec_date.update({
                 f"max_num_of_players_{platform}": len(df_filtered),
                 f"best_actual_lineup_{platform}": [df_filtered.iloc[i]["player_name"] for i in best_individual],
                 f"best_pred_lineup_{platform}": [df_filtered_pred.iloc[i]["player_name"] for i in best_individual_pred],
@@ -100,11 +103,13 @@ def get_lineup(df):
                 f"best_pred_score_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}_pred'] for i in best_individual_pred),
                 f"best_actual_cost_{platform}": sum(df_filtered.iloc[i][f'{platform}_salary'] for i in best_individual),
                 f"best_pred_cost_{platform}": sum(df_filtered_pred.iloc[i][f'{platform}_salary'] for i in best_individual_pred),
-                "is_repeat": len(best_individual) - len(np.unique(best_individual)),
-                "is_repeat_pred": len(best_individual_pred) - len(np.unique(best_individual_pred)),
+                f"is_repeat_{platform}": len(best_individual) - len(np.unique(best_individual)),
+                f"is_repeat_pred_{platform}": len(best_individual_pred) - len(np.unique(best_individual_pred)),
             })
+        date_res.append(spec_date)
 
     return pd.DataFrame(date_res)
+
 
 def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
     df_filtered = df[df['game_date'] == date].reset_index(drop=True)
@@ -112,26 +117,23 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
     position_constraints = salary_constraints[platform]['positions']
     num_players_selected = sum(position_constraints.values())
 
-    # Create a fitness class for the GA
-    creator.create("FitnessMax", base.Fitness, weights=(1.0,))
-    creator.create("Individual", list, fitness=creator.FitnessMax)
+    # Check if classes already exist
+    if not hasattr(creator, "FitnessMax"):
+        creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+    if not hasattr(creator, "Individual"):
+        creator.create("Individual", list, fitness=creator.FitnessMax)
 
-    # Define the genetic operators
     toolbox = base.Toolbox()
-
-    # Generate a random permutation of the players and then select the first num_players_selected players
     toolbox.register("attr_unique", random.sample, range(len(df_filtered)), num_players_selected)
     toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.attr_unique)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
-    # Custom fitness function that penalizes salary cap violations
     def evaluate(individual):
         total_cost = sum(df_filtered.iloc[i][f'{platform.lower()}_salary'] for i in individual)
         penalty = max(0, total_cost - salary_cap) * 10
         pred_col = f'fp_{platform.lower()}_pred' if pred_flag else f'fp_{platform.lower()}'
         total_score = sum(df_filtered.iloc[i][pred_col] for i in individual)
 
-        # Get the positions of the selected players
         position_count = {pos: 0 for pos in position_constraints.keys()}
         for i in individual:
             pos_split = df_filtered.iloc[i][f'{platform.lower()}_position'].split("/")
@@ -142,15 +144,19 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
                     position_count["F"] += 1
                 if p in ["PG", "SG"] and "G" in position_count:
                     position_count["G"] += 1
-            position_count["UTIL"] += 1  # Any position can count for UTIL
+            if "UTIL" in position_count:
+                position_count["UTIL"] += 1
 
-        # Add a penalty for not meeting the positional constraints
         positional_penalty = 0
-        for pos, required_count in position_constraints.items():
-            if pos != "UTIL":  # Skip UTIL as it can be any position
+        for pos, required_count  in position_constraints.items():
+            if pos != "UTIL":
                 positional_penalty += max(0, required_count - position_count[pos]) * 10
 
-        fitness = total_score - penalty - positional_penalty
+        # Penalize duplicate players
+        unique_individuals = set(individual)
+        duplicate_penalty = (len(individual) - len(unique_individuals)) * 10
+
+        fitness = total_score - penalty - positional_penalty - duplicate_penalty
         return fitness,
 
     toolbox.register("evaluate", evaluate)
@@ -168,13 +174,9 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
     toolbox.register("mutate", mutate)
     toolbox.register("select", tools.selTournament, tournsize=3)
 
-    # Create the population
     population = toolbox.population(n=min(len(df_filtered), 50))
-
-    # Run the genetic algorithm
     algorithms.eaSimple(population, toolbox, cxpb=0.5, mutpb=0.2, ngen=10, verbose=False)
 
-    # Get the best individual from the final population
     best_individual = tools.selBest(population, k=1)[0]
     return df_filtered, best_individual
 
@@ -182,12 +184,12 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
 
 # df = df_loader()
 # df = predict_dkfp(df,should_train=True, should_plot=True)
-fp_pred_df = pd.read_csv('fp_pred.csv')
-salaries_df = pd.read_csv('output_csv/historic_dfs_data_v2.csv')
+df = pd.read_csv('fp_pred.csv')
+# salaries_df = pd.read_csv('output_csv/historic_dfs_data_v2.csv')
 
-df = merge_fp_pred_and_salaries(fp_pred_df, salaries_df)
+# df = merge_fp_pred_and_salaries(fp_pred_df)
 res = get_lineup(df)
-res.to_csv('all_res.csv')
+res.to_csv('all_res.csv', index=False)
 # TODO: understand the current bug with the repeating players
 # TODO: start talking to mentors
 

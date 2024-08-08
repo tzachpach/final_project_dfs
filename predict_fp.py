@@ -35,6 +35,12 @@ same_game_cols = ['minutes_played', 'fgm', 'fga', 'fg_pct', 'fg3m', 'fg3a', 'fg3
                    'fp_yahoo', 'is_wl']
 # current_game_cols = ['salary-draftkings', 'salary-fanduel',	'salary-yahoo']
 
+def load_all_seasons_data():
+    all_csvs = [file for file in os.listdir('data/') if file.endswith('.csv') and 'merged_gamelogs_salaries_' in file]
+    dfs = [pd.read_csv(f'data/{csv}') for csv in all_csvs]
+    df = pd.concat(dfs)
+    return df
+
 def calculate_fp_fanduel(row, pred_mode=False):
     pred = '_pred' if pred_mode else ''
     return (row[f'pts{pred}'] +
@@ -77,7 +83,7 @@ def calculate_fp_draftkings(row, pred_mode=False):
     return fp
 
 
-def rolling_train_test(X, y, league_week_gb, player_name_to_id, num_weeks_for_training=16, save_model=True,
+def rolling_train_test(X, y, league_week_gb, num_weeks_for_training=16, save_model=True,
                        model_dir='models'):
     # Ensure the model directory exists
     os.makedirs(model_dir, exist_ok=True)
@@ -88,6 +94,12 @@ def rolling_train_test(X, y, league_week_gb, player_name_to_id, num_weeks_for_tr
     all_game_ids = []
     all_game_dates = []
     all_player_ids = []
+    all_fanduel_salaries = []
+    all_draftkings_salaries = []
+    all_yahoo_salaries = []
+    all_fanduel_positions = []
+    all_draftkings_positions = []
+    all_yahoo_positions = []
 
     # Get the maximum and minimum weeks
     max_week = league_week_gb['league_week'].max()
@@ -135,6 +147,12 @@ def rolling_train_test(X, y, league_week_gb, player_name_to_id, num_weeks_for_tr
         all_game_ids.extend(list(identifying_test_data['game_id']))
         all_game_dates.extend(list(identifying_test_data['game_date']))
         all_player_ids.extend(list(identifying_test_data['player_name']))
+        all_fanduel_salaries.extend(X_test['salary-draftkings'])
+        all_draftkings_salaries.extend(X_test['salary-draftkings'])
+        all_yahoo_salaries.extend(X_test['salary-yahoo'])
+        all_fanduel_positions.extend(X_test['pos-draftkings'])
+        all_draftkings_positions.extend(X_test['pos-draftkings'])
+        all_yahoo_positions.extend(X_test['pos-yahoo'])
 
         # Save the model if requested
         if save_model:
@@ -164,12 +182,14 @@ def rolling_train_test(X, y, league_week_gb, player_name_to_id, num_weeks_for_tr
         'game_date': all_game_dates,
         'y': all_true_values,
         'y_pred': all_predictions,
+        'fanduel_salary': all_fanduel_salaries,
+        'draftkings_salary': all_draftkings_salaries,
+        'yahoo_salary': all_yahoo_salaries,
+        'fanduel_position': all_fanduel_positions,
+        'draftkings_position': all_draftkings_positions,
+        'yahoo_position': all_yahoo_positions,
 
     })
-    # results_df['player_name'] = results_df['player_id'].apply(
-    #     lambda x: player_name_to_id[player_name_to_id['player_id'] == x]['player_name'].values[0])
-    # results_df['team_abbreviation'] = results_df['player_name'].apply(
-    #     lambda x: player_name_to_id[player_name_to_id['player_name'] == x]['team_abbreviation'].values[0])
     return results_df
 
 
@@ -263,7 +283,7 @@ def predict_fp(df, rolling_window=rolling_window):
         # Train the model
         print(f'Training models for {cat}')
         print('---------------------------------')
-        results = rolling_train_test(X=X, y=y, league_week_gb=league_week_gb, player_name_to_id=player_name_to_id,
+        results = rolling_train_test(X=X, y=y, league_week_gb=league_week_gb,
                                      save_model=False)
         results.to_csv(f'output_csv/{cat}_results.csv', index=False)
         total_results.update({f'{cat}_full data': results})
@@ -278,8 +298,7 @@ def predict_fp(df, rolling_window=rolling_window):
     combined_df = dfs[0]
 
     for df in dfs[1:]:
-        combined_df = pd.merge(combined_df, df, on=['player_name', 'game_date', 'game_id'],
-                               how='outer')
+        combined_df = pd.merge(combined_df, df, on=['player_name', 'game_date', 'game_id','fanduel_salary', 'draftkings_salary', 'yahoo_salary', 'draftkings_position', 'fanduel_position', 'yahoo_position'], suffixes=('', f'_{df.columns.name}'))
 
     # Add FP calculations:
     combined_df['fp_fanduel'] = combined_df.apply(lambda row: calculate_fp_fanduel(row), axis=1)
