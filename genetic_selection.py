@@ -8,8 +8,6 @@ from deap import base, creator, tools, algorithms
 from fuzzywuzzy import fuzz
 from fuzzywuzzy import process
 
-# from IDC.final_project.df_loader import df_loader
-# from IDC.final_project.fetch_y_pred import predict_dkfp
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -136,6 +134,8 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
 
         position_count = {pos: 0 for pos in position_constraints.keys()}
         for i in individual:
+            if  pd.isna(df_filtered.iloc[i][f'{platform.lower()}_position']):
+                continue
             pos_split = df_filtered.iloc[i][f'{platform.lower()}_position'].split("/")
             for p in pos_split:
                 if p in position_count:
