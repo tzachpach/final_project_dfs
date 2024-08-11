@@ -160,14 +160,13 @@ def predict_fp(df, rolling_window=rolling_window):
 
     df = add_time_dependent_features(df, rolling_window=rolling_window)
 
+    total_results = {}
     cross_season_df = pd.DataFrame()
     for season in df['season_year'].unique():
         season_df = df[df['season_year'] == season]
         season_df = season_df.drop('season_year', axis=1)
-        league_week_gb = season_df.groupby('league_week')['game_date'].unique().reset_index()
-        league_week_gb = league_week_gb.sort_values('league_week', ascending=False)
 
-        total_results = {}
+
         for cat in dfs_cats:
             target = cat
             target_related_cols = same_game_cols
