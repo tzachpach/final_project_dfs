@@ -60,23 +60,6 @@ def get_best_match(name, name_list, threshold=80):
     else:
         return None
 
-# def merge_fp_pred_and_salaries(fp_pred_df):
-#     name_mapping = {}
-#     prices_names = set(salaries_df['player_name'].tolist())
-#     for name in set(fp_pred_df['player_name']):
-#         if name == 'Juan Hernangomez': # Comfusion with Willy Hernangomez
-#             continue
-#         best_match = get_best_match(name, prices_names)
-#         if best_match:
-#             name_mapping[name] = best_match
-#         if best_match and name != best_match:
-#             print(name, best_match)
-#     fp_pred_df['player_name'] = fp_pred_df['player_name'].map(name_mapping).fillna(fp_pred_df['player_name'])
-#     fp_pred_df['team'] = fp_pred_df['team'].apply(lambda x: x.lower())
-#     # Merge dfFrames on 'player_name' and 'game_date' (date in df2)
-#     # merged_df = pd.merge(fp_pred_df, salaries_df, left_on=['player_name', 'game_date'], right_on=['player_name', 'date'], how='left')
-#     return merged_df
-
 def get_lineup(df):
 
     df = df.reset_index(drop=True)
