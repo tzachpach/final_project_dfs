@@ -1,4 +1,4 @@
-player_name,game_id,game_date,y,y_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
+player_name,game_id,game_date,pts,pts_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
 Kay Felder,21700049,2017-10-24,13,9.39158,3000.0,3000.0,10.0,PG,PG,PG
 Kyle O'Quinn,21700051,2017-10-24,2,4.819058,4200.0,4200.0,10.0,PF/C,PF/C,PF
 Shabazz Napier,21700053,2017-10-24,0,4.029723,3400.0,3400.0,10.0,PG/SG,PG/SG,PG

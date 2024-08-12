@@ -1,4 +1,4 @@
-player_name,game_id,game_date,y,y_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
+player_name,game_id,game_date,pts,pts_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
 Jaden Ivey,22200052,2022-10-25,11,13.348837,6800.0,6800.0,19.0,SG,SG,SG
 Maxi Kleber,22200053,2022-10-25,7,4.6823125,4200.0,4200.0,12.0,PF/C,PF/C,PF
 Landry Shamet,22200055,2022-10-25,2,7.2456207,3400.0,3400.0,10.0,SG/SF,SG/SF,SG

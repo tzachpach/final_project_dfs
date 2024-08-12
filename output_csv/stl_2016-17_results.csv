@@ -1,4 +1,4 @@
-player_name,game_id,game_date,y,y_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
+player_name,game_id,game_date,stl,stl_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
 Draymond Green,21600054,2016-11-01,3,4.3091927,7700.0,7700.0,39.0,PF/C,PF/C,PF
 Kristaps Porzingis,21600050,2016-11-01,0,0.021082282,7100.0,7100.0,33.0,PF,PF,PF
 Ian Clark,21600054,2016-11-01,3,1.4948773,3000.0,3000.0,10.0,PG/SG,PG/SG,SG

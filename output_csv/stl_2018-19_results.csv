@@ -1,4 +1,4 @@
-player_name,game_id,game_date,y,y_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
+player_name,game_id,game_date,stl,stl_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
 Landry Shamet,21800049,2018-10-23,0,0.31430387,3200.0,3200.0,10.0,PG,PG,PG
 De'Aaron Fox,21800051,2018-10-23,2,2.445328,7100.0,7100.0,21.0,PG,PG,PG
 Langston Galloway,21800049,2018-10-23,0,0.018842582,3500.0,3500.0,10.0,PG/SG,PG/SG,SG

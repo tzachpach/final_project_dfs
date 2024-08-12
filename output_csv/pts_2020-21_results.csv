@@ -1,4 +1,4 @@
-player_name,game_id,game_date,y,y_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
+player_name,game_id,game_date,pts,pts_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
 Langston Galloway,22000053,2020-12-29,3,5.766844,3200.0,3200.0,10.0,PG/SG,PG/SG,SG
 Killian Hayes,22000047,2020-12-29,0,1.5838113,4300.0,4300.0,10.0,PG,PG,PG
 Malcolm Brogdon,22000048,2020-12-29,19,17.927195,7200.0,7200.0,33.0,PG,PG,PG

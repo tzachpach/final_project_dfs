@@ -1,4 +1,4 @@
-player_name,game_id,game_date,y,y_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
+player_name,game_id,game_date,ast,ast_pred,fanduel_salary,draftkings_salary,yahoo_salary,fanduel_position,draftkings_position,yahoo_position
 Obi Toppin,22100050,2021-10-26,2,1.5456872,3900.0,3900.0,10.0,SF/PF,SF/PF,PF
 Alperen Sengun,22100052,2021-10-26,2,2.0849257,4300.0,4300.0,15.0,C,C,C
 Boban Marjanovic,22100052,2021-10-26,1,2.5213008,4300.0,4300.0,10.0,C,C,C
