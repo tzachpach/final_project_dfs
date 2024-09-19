@@ -1,16 +1,17 @@
 import logging
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 import os
 import pickle
 from sklearn.metrics import mean_squared_error, r2_score
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM
+from sklearn.preprocessing import MinMaxScaler
 
 from constants import *
 
-
 def assign_league_weeks(df):
-    # Assign league weeks based on the game date and season year
     df['week'] = df['game_date'].dt.isocalendar().week
     df['season_start'] = df.groupby('season_year')['game_date'].transform('min')
     df['season_week'] = ((df['game_date'] - df['season_start']).dt.days // 7) + 1
@@ -18,8 +19,23 @@ def assign_league_weeks(df):
     df = df.rename(columns={'season_week': 'league_week'})
     return df
 
+def create_sequences(X, y, time_steps=4):
+    Xs, ys = [], []
+    for i in range(len(X) - time_steps):
+        Xs.append(X[i:(i + time_steps)].values)
+        ys.append(y[i + time_steps])
+    return np.array(Xs), np.array(ys)
 
-def rolling_train_test(X, y, df, num_weeks_for_training=4, save_model=False, model_dir='models'):
+def build_rnn_model(input_shape):
+    model = Sequential()
+    model.add(LSTM(50, return_sequences=True, input_shape=input_shape))
+    model.add(LSTM(50, return_sequences=False))
+    model.add(Dense(25))
+    model.add(Dense(1))
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    return model
+
+def rolling_train_test_rnn(X, y, df, num_weeks_for_training=4, time_steps=4, save_model=False, model_dir='models'):
     os.makedirs(model_dir, exist_ok=True)
 
     # Initialize lists to store predictions and true values
@@ -35,6 +51,7 @@ def rolling_train_test(X, y, df, num_weeks_for_training=4, save_model=False, mod
     all_draftkings_positions = []
     all_yahoo_positions = []
 
+    scaler = MinMaxScaler(feature_range=(0, 1))
     unique_weeks = df['league_week'].unique()
 
     for current_week in unique_weeks:
@@ -56,43 +73,41 @@ def rolling_train_test(X, y, df, num_weeks_for_training=4, save_model=False, mod
         X_train = X_train.drop(columns=['game_date', 'game_id'])
         X_test = X_test.drop(columns=['game_date', 'game_id'])
 
-        # Create DMatrix for training and testing data
-        dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
-        dtest = xgb.DMatrix(X_test, label=y_test, enable_categorical=True)
+        # Scale data
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
 
-        params = {
-            'tree_method': 'hist',  # Use 'gpu_hist' if you have a GPU
-            'enable_categorical': True
-        }
+        # Create sequences for training
+        X_train_seq, y_train_seq = create_sequences(X_train_scaled, y_train, time_steps)
+        X_test_seq, y_test_seq = create_sequences(X_test_scaled, y_test, time_steps)
 
-        # Train the model
-        model = xgb.train(params, dtrain)
+        # Build and train the RNN model
+        model = build_rnn_model((X_train_seq.shape[1], X_train_seq.shape[2]))
+        model.fit(X_train_seq, y_train_seq, epochs=10, batch_size=32, verbose=0)
 
         # Make predictions
-        y_pred = model.predict(dtest)
+        y_pred = model.predict(X_test_seq)
 
         # Store the predictions and true values
-        all_predictions.extend(y_pred)
-        all_true_values.extend(y_test)
-        all_game_ids.extend(list(identifying_test_data['game_id']))
-        all_game_dates.extend(list(identifying_test_data['game_date']))
-        all_player_ids.extend(list(identifying_test_data['player_name']))
-        all_fanduel_salaries.extend(X_test['salary-draftkings'])
-        all_draftkings_salaries.extend(X_test['salary-draftkings'])
-        all_yahoo_salaries.extend(X_test['salary-yahoo'])
-        all_fanduel_positions.extend(X_test['pos-draftkings'])
-        all_draftkings_positions.extend(X_test['pos-draftkings'])
-        all_yahoo_positions.extend(X_test['pos-yahoo'])
+        all_predictions.extend(y_pred.flatten())
+        all_true_values.extend(y_test_seq)
+        all_game_ids.extend(list(identifying_test_data['game_id'])[time_steps:])
+        all_game_dates.extend(list(identifying_test_data['game_date'])[time_steps:])
+        all_player_ids.extend(list(identifying_test_data['player_name'])[time_steps:])
+        all_fanduel_salaries.extend(X_test['salary-draftkings'].values[time_steps:])
+        all_draftkings_salaries.extend(X_test['salary-draftkings'].values[time_steps:])
+        all_yahoo_salaries.extend(X_test['salary-yahoo'].values[time_steps:])
+        all_fanduel_positions.extend(X_test['pos-draftkings'].values[time_steps:])
+        all_draftkings_positions.extend(X_test['pos-draftkings'].values[time_steps:])
+        all_yahoo_positions.extend(X_test['pos-yahoo'].values[time_steps:])
 
-        # Save the model if requested
         if save_model:
-            model_filename = f'{model_dir}/model_week_{current_week}_trained_on_{start_week}_to_{current_week - 1}.pkl'
-            with open(model_filename, 'wb') as file:
-                pickle.dump(model, file)
+            model_filename = f'{model_dir}/rnn_model_week_{current_week}_trained_on_{start_week}_to_{current_week - 1}.h5'
+            model.save(model_filename)
 
-        mse = mean_squared_error(y_test, y_pred)
+        mse = mean_squared_error(y_test_seq, y_pred)
         rmse = np.sqrt(mse)
-        r2 = r2_score(y_test, y_pred)
+        r2 = r2_score(y_test_seq, y_pred)
 
         print(f'Training weeks: {training_weeks}')
         print(f'Test week: {current_week}')
@@ -117,25 +132,7 @@ def rolling_train_test(X, y, df, num_weeks_for_training=4, save_model=False, mod
 
     return results_df
 
-
-def add_time_dependent_features(df, rolling_window):
-    for col in same_game_cols:
-        logging.info(f"Adding features to {col}")
-        gb = df.groupby('player_name')[col]
-        df[f'{col}_rolling_{rolling_window}_day_avg'] = gb.transform(
-            lambda x: x.rolling(rolling_window, min_periods=1).mean())
-        df[f'{col}_rolling_{rolling_window}_day_std'] = gb.transform(
-            lambda x: x.rolling(rolling_window, min_periods=1).std())
-        df[f'{col}_lag_1'] = gb.shift(1)
-        df[f'{col}_lag_2'] = gb.shift(2)
-        df[f'{col}_lag_3'] = gb.shift(3)
-        df[f'{col}_diff_1'] = gb.diff(1)
-        df[f'{col}_diff_2'] = gb.diff(2)
-        df[f'{col}_diff_3'] = gb.diff(3)
-    return df
-
-
-def predict_fp(df, rolling_window=rolling_window):
+def predict_fp_rnn(df, rolling_window=rolling_window):
     df = df.drop('Unnamed: 0', axis=1)
     df['game_date'] = pd.to_datetime(df['game_date'])
 
@@ -162,9 +159,9 @@ def predict_fp(df, rolling_window=rolling_window):
             X = season_df[features]
             y = season_df[target]
 
-            print(f'Training models for {cat}')
+            print(f'Training RNN models for {cat}')
             print('---------------------------------')
-            cat_results = rolling_train_test(X=X, y=y, df=season_df)
+            cat_results = rolling_train_test_rnn(X=X, y=y, df=season_df)
             cat_results.rename(columns={'y': cat, 'y_pred': f'{cat}_pred'}, inplace=True)
             if len(season_results) == 0:
                 season_results = cat_results
@@ -174,7 +171,7 @@ def predict_fp(df, rolling_window=rolling_window):
                     cat_results,
                     on=['player_name', 'game_date', 'game_id', 'fanduel_salary', 'draftkings_salary', 'yahoo_salary', 'draftkings_position', 'fanduel_position', 'yahoo_position'],
                     suffixes=('', f'_{season_df.columns.name}'))
-            cat_results.to_csv(f'output_csv/{cat}_{season}_results.csv', index=False)
+            cat_results.to_csv(f'output_csv/{cat}_{season}_rnn_results.csv', index=False)
 
         all_seasons_results.append(season_results)
 
@@ -192,5 +189,5 @@ def predict_fp(df, rolling_window=rolling_window):
 
 
 df = pd.read_csv('data/gamelogs_salaries_all_seasons_merged.csv')
-res = predict_fp(df)
-res.to_csv('fp_pred.csv')
+res = predict_fp_rnn(df)
+res.to_csv('fp_pred_rnn.csv')
