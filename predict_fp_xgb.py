@@ -11,10 +11,10 @@ from constants import *
 
 def assign_league_weeks(df):
     # Assign league weeks based on the game date and season year
-    df['week'] = df['game_date'].dt.isocalendar().week
+    # df['week'] = df['game_date'].dt.isocalendar().week
     df['season_start'] = df.groupby('season_year')['game_date'].transform('min')
     df['season_week'] = ((df['game_date'] - df['season_start']).dt.days // 7) + 1
-    df = df.drop(columns=['season_start', 'week'])
+    df = df.drop(columns=['season_start'])
     df = df.rename(columns={'season_week': 'league_week'})
     return df
 
@@ -138,8 +138,7 @@ def predict_fp(df, rolling_window=rolling_window):
 
         for cat in dfs_cats:
             target = cat
-            target_related_cols = same_game_cols
-            features = season_df.columns.difference(target_related_cols).tolist()
+            features = season_df.columns.difference(same_game_cols).tolist()
 
             X = season_df[features]
             y = season_df[target]
@@ -169,7 +168,7 @@ def predict_fp(df, rolling_window=rolling_window):
 
     combined_df['fp_draftkings'] = combined_df.apply(calculate_fp_draftkings, axis=1)
     combined_df['fp_draftkings_pred'] = combined_df.apply(lambda row: calculate_fp_draftkings(row, pred_mode=True),
-                                                          axis=1)
+                                                           axis=1)
     return combined_df
 
 
