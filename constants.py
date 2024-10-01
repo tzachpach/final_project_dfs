@@ -1,3 +1,5 @@
+import logging
+
 import pandas as pd
 
 rolling_window = 10
@@ -64,4 +66,20 @@ def clean_numeric_columns(df, columns):
     """
     for col in columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')  # Convert non-numeric to NaN
+    return df
+
+def add_time_dependent_features(df, rolling_window):
+    for col in same_game_cols:
+        logging.info(f"Adding features to {col}")
+        gb = df.groupby('player_name')[col]
+        df[f'{col}_rolling_{rolling_window}_day_avg'] = gb.transform(
+            lambda x: x.rolling(rolling_window, min_periods=1).mean())
+        df[f'{col}_rolling_{rolling_window}_day_std'] = gb.transform(
+            lambda x: x.rolling(rolling_window, min_periods=1).std())
+        df[f'{col}_lag_1'] = gb.shift(1)
+        df[f'{col}_lag_2'] = gb.shift(2)
+        df[f'{col}_lag_3'] = gb.shift(3)
+        df[f'{col}_diff_1'] = gb.diff(1)
+        df[f'{col}_diff_2'] = gb.diff(2)
+        df[f'{col}_diff_3'] = gb.diff(3)
     return df
