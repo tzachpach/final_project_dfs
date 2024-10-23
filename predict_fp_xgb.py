@@ -117,7 +117,7 @@ def rolling_train_test(X, y, df, num_weeks_for_training=4, save_model=False, mod
 
     return results_df
 
-def predict_fp(df, rolling_window=rolling_window):
+def predict_fp(df, rolling_window=rolling_window, three_months_only=True):
     df = df.drop('Unnamed: 0', axis=1)
     df['game_date'] = pd.to_datetime(df['game_date'])
 
@@ -125,6 +125,8 @@ def predict_fp(df, rolling_window=rolling_window):
     df[cat_cols] = df[cat_cols].astype('category')
 
     df = df.sort_values(['game_date'], ascending=True)
+    if three_months_only:
+        df = df[(df['game_date'] >= '2023-01-01') & (df['game_date'] < '2023-04-01')]
     df = assign_league_weeks(df)
     df = clean_numeric_columns(df, same_game_cols)
     df = add_time_dependent_features(df, rolling_window=rolling_window)
@@ -169,9 +171,10 @@ def predict_fp(df, rolling_window=rolling_window):
     combined_df['fp_draftkings'] = combined_df.apply(calculate_fp_draftkings, axis=1)
     combined_df['fp_draftkings_pred'] = combined_df.apply(lambda row: calculate_fp_draftkings(row, pred_mode=True),
                                                            axis=1)
+    res_name = 'fp_xgb_pred_three_months_only' if three_months_only else 'fp_xgb_pred'
+    combined_df.to_csv(f'output_csv/{res_name}.csv', index=False)
     return combined_df
 
 
 df = pd.read_csv('data/gamelogs_salaries_all_seasons_merged.csv')
-res = predict_fp(df)
-res.to_csv('fp_pred.csv')
+res = predict_fp(df, three_months_only=True)

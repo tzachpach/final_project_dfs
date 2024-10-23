@@ -122,11 +122,13 @@ def rolling_train_test(X, y, save_model=False, model_dir='models'):
     return results_df
 
 
-def predict_fp(df):
+def predict_fp(df, three_months_only=True, rolling_window=10):
     df = df.drop('Unnamed: 0', axis=1, errors='ignore')  # Use errors='ignore' in case the column doesn't exist
     df['game_date'] = pd.to_datetime(df['game_date'])
 
     df = df.sort_values(['game_date'], ascending=True)
+    if three_months_only:
+        df = df[(df['game_date'] >= '2023-01-01') & (df['game_date'] < '2023-04-01')]
 
     # Clean numeric columns and add time-dependent features (assuming these functions are defined)
     df = clean_numeric_columns(df, same_game_cols)
@@ -178,9 +180,10 @@ def predict_fp(df):
     combined_df['fp_draftkings'] = combined_df.apply(calculate_fp_draftkings, axis=1)
     combined_df['fp_draftkings_pred'] = combined_df.apply(lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1)
 
+    res_name = 'fp_xgb_daily_pred_three_months_only' if three_months_only else 'fp_xgb_daily_pred'
+    combined_df.to_csv(f'output_csv/{res_name}.csv', index=False)
     return combined_df
 
 
 df = pd.read_csv('data/gamelogs_salaries_all_seasons_merged.csv')
-res = predict_fp(df)
-res.to_csv('fp_pred_daily.csv')
+res = predict_fp(df, three_months_only=True)
