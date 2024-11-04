@@ -167,12 +167,14 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
 
 # df = df_loader()
 # df = predict_dkfp(df,should_train=True, should_plot=True)
-df = pd.read_csv('fp_pred.csv')
+df = pd.read_csv('output_csv/fp_xgb_daily_pred_three_months_only.csv')
 # salaries_df = pd.read_csv('output_csv/historic_dfs_data_v2.csv')
 
 # df = merge_fp_pred_and_salaries(fp_pred_df)
 res = get_lineup(df)
-res.to_csv('all_res.csv', index=False)
+predictor_used = 'xgb_daily'
+res_name = f'optimized_lineup_{predictor_used}.csv'
+res.to_csv(res_name, index=False)
 # TODO: understand the current bug with the repeating players
 # TODO: start talking to mentors
 
