@@ -1,0 +1,4 @@
+pred_name,nba_season,DFS platform,test_MAE,test_RMSE,R²,rolling_window,seq_length,train_epochs
+RNN,2018-19,draftkings,9.358122,11.957944,0.2071879567558128,10,10,50
+RNN,2018-19,fanduel,9.327121,11.829027,0.2060415526239422,10,10,50
+RNN,2018-19,yahoo,9.11826,11.576749,0.23954603600877522,10,10,50
