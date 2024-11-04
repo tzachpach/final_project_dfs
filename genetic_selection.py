@@ -1,5 +1,7 @@
 import logging
 import random
+import warnings
+warnings.filterwarnings("ignore")
 
 import numpy as np
 import pandas as pd
@@ -82,6 +84,7 @@ def get_lineup(df):
                 f"best_pred_lineup_{platform}": [df_filtered_pred.iloc[i]["player_name"] for i in best_individual_pred],
                 f"best_actual_score_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual),
                 f"best_pred_score_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}_pred'] for i in best_individual_pred),
+                f"best_actual_score_pred_lineup_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual_pred),
                 f"best_actual_cost_{platform}": sum(df_filtered.iloc[i][f'{platform}_salary'] for i in best_individual),
                 f"best_pred_cost_{platform}": sum(df_filtered_pred.iloc[i][f'{platform}_salary'] for i in best_individual_pred),
                 f"is_repeat_{platform}": len(best_individual) - len(np.unique(best_individual)),
