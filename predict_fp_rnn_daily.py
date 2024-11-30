@@ -10,6 +10,8 @@ from tensorflow.keras.layers import Dense, LSTM
 from sklearn.preprocessing import MinMaxScaler
 
 from constants import *
+from preprocess_merged_csvs import merge_all_seasons
+
 
 def assign_league_weeks(df):
     df['week'] = df['game_date'].dt.isocalendar().week
@@ -188,6 +190,6 @@ def predict_fp_rnn(df, rolling_window=rolling_window):
     return combined_df
 
 
-df = pd.read_csv('data/gamelogs_salaries_all_seasons_merged.csv')
+df = merge_all_seasons()
 res = predict_fp_rnn(df)
 res.to_csv('fp_pred_rnn.csv')

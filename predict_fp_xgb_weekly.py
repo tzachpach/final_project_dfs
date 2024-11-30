@@ -7,6 +7,7 @@ import pickle
 from sklearn.metrics import mean_squared_error, r2_score
 
 from constants import *
+from preprocess_merged_csvs import merge_all_seasons
 
 
 def assign_league_weeks(df):
@@ -176,5 +177,5 @@ def predict_fp(df, rolling_window=rolling_window, three_months_only=True):
     return combined_df
 
 
-df = pd.read_csv('data/gamelogs_salaries_all_seasons_merged.csv')
+df = merge_all_seasons()
 res = predict_fp(df, three_months_only=True)
