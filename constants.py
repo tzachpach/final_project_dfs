@@ -19,6 +19,19 @@ same_game_cols = ['minutes_played', 'fgm', 'fga', 'fg_pct', 'fg3m', 'fg3a', 'fg3
                    'pct_pfd', 'pct_pts', 'usage_rate', 'fp_draftkings', 'fp_fanduel',
                    'fp_yahoo', 'is_wl']
 
+thresholds_for_exceptional_games = {
+    'pts': 20,  # High-scoring game threshold
+    'reb': 10,  # High-rebounding game threshold
+    'ast': 8,  # High-assist game threshold
+    'stl': 5,  # High-steal game threshold
+    'blk': 5,  # High-block game threshold
+    'tov': 5,  # High-turnover game threshold
+    'fp_draftkings': 50,  # Exceptional DFS performance for DraftKings
+    'fp_fanduel': 45,  # Exceptional DFS performance for FanDuel
+    'fp_yahoo': 40,  # Exceptional DFS performance for Yahoo
+}
+
+
 def calculate_fp_fanduel(row, pred_mode=False):
     pred = '_pred' if pred_mode else ''
     return (row[f'pts{pred}'] +
@@ -138,3 +151,147 @@ def add_time_dependent_features_v2(df, rolling_window):
     df = pd.merge(df, new_features_df, on=['player_name', 'game_date'], how='left')
 
     return df
+
+def calculate_exceptional_games_and_doubles(group, thresholds):
+    """Calculate exceptional games, double-doubles, and triple-doubles for a group of games."""
+    results = {}
+
+    # Exceptional games counts based on thresholds
+    for stat, threshold in thresholds.items():
+        exceptional_col = f'{stat}_exceptional_games'
+        results[exceptional_col] = (group[stat] >= threshold).sum()
+
+    # Double-doubles and triple-doubles
+    double_double = ((group[['pts', 'reb', 'ast', 'stl', 'blk']] >= 10).sum(axis=1) >= 2).sum()
+    triple_double = ((group[['pts', 'reb', 'ast', 'stl', 'blk']] >= 10).sum(axis=1) >= 3).sum()
+    results['double_doubles'] = double_double
+    results['triple_doubles'] = triple_double
+
+    return pd.Series(results)
+
+
+def add_last_season_data_with_extras(df):
+    """ Add last season aggregates and additional stats to the DataFrame """
+    all_cats = dfs_cats + ['fp_fanduel', 'fp_yahoo', 'fp_draftkings']
+
+    # Predefine all new columns with None values
+    for cat in all_cats:
+        df[f'last_season_avg_{cat}'] = None
+    df['last_season_games_played'] = None
+    df['last_season_double_doubles'] = None
+    df['last_season_triple_doubles'] = None
+
+    for col in thresholds_for_exceptional_games.keys():
+        df[f'last_season_{col}_exceptional_games'] = None
+
+    # Add column for last season year
+    df['last_season_year_start'] = df['season_year'].apply(lambda x: str(int(x.split("-")[0]) - 1))
+    prev_season_start_year = [s.split("-")[0] for s in df['season_year'].unique()]
+
+    for season_year in df['season_year'].unique():
+        last_season_year = str(int(season_year.split("-")[0]) - 1)
+
+        if last_season_year not in prev_season_start_year:
+            continue
+
+        # Filter rows for the current season and last season
+        last_season_filter = (df['last_season_year_start'] == last_season_year)
+
+        last_season_data = df[last_season_filter]
+
+        if last_season_data.empty:
+            continue
+
+        # Calculate aggregate stats for last season
+        agg_cols = {f'last_season_avg_{cat}': (cat, 'mean') for cat in all_cats}
+        agg_cols['last_season_games_played'] = ('game_id', 'count')
+
+        agg_data = last_season_data.groupby(['player_name', 'team_abbreviation']).agg(**agg_cols).reset_index()
+
+        # Calculate exceptional games and doubles
+        doubles_data = last_season_data.groupby(['player_name', 'team_abbreviation']).apply(
+            calculate_exceptional_games_and_doubles, thresholds=thresholds_for_exceptional_games
+        ).reset_index()
+
+        doubles_data.columns = ['player_name', 'team_abbreviation'] + [
+            f'last_season_{col}' for col in doubles_data.columns if col not in ['player_name', 'team_abbreviation']
+        ]
+
+        # Merge doubles data into aggregated data
+        agg_data = agg_data.merge(doubles_data, on=['player_name', 'team_abbreviation'], how='left')
+
+        # Get current season rows
+        current_season_mask = df['season_year'] == season_year
+
+        # For each column in agg_data (except player_name and team_abbreviation)
+        for col in agg_data.columns:
+            if col not in ['player_name', 'team_abbreviation']:
+                # Create a mapping series from player_name and team_abbreviation to the stat
+                stat_mapping = agg_data.set_index(['player_name', 'team_abbreviation'])[col]
+
+                # Create a temporary index for the current season data
+                temp_idx = df[current_season_mask].set_index(['player_name', 'team_abbreviation']).index
+
+                # Map the values and update the original dataframe
+                df.loc[current_season_mask, col] = temp_idx.map(stat_mapping)
+
+    # Fill NaN values in newly added columns only
+    last_season_cols = [col for col in df.columns if col.startswith('last_season_')]
+    df[last_season_cols] = df[last_season_cols].fillna(0)
+
+    return df
+
+
+# def add_running_season_stats(df):
+#     """ Add running season aggregates and stats up to but not including the current game """
+#     all_cats = dfs_cats + ['fp_fanduel', 'fp_yahoo', 'fp_draftkings']
+#
+#     # Predefine all new columns with None values
+#     for cat in all_cats:
+#         df[f'running_season_avg_{cat}'] = None
+#         df[f'running_season_total_{cat}'] = None
+#     df['running_season_games_played'] = None
+#     df['running_season_double_doubles'] = None
+#     df['running_season_triple_doubles'] = None
+#
+#     for col in thresholds_for_exceptional_games.keys():
+#         df[f'running_season_{col}_exceptional_games'] = None
+#
+#     # Group by player, team, and season to calculate running stats
+#     for (player_name, team_abbreviation, season_year), group in df.groupby(
+#             ['player_name', 'team_abbreviation', 'season_year']):
+#         # Sort by game_date within season
+#         group = group.sort_values('game_date')
+#         group_idx = group.index
+#
+#         # Calculate cumulative stats using expanding and shift to exclude the current game
+#         for cat in all_cats:
+#             df.loc[group_idx, f'running_season_avg_{cat}'] = group[cat].expanding().mean().shift(1)
+#             df.loc[group_idx, f'running_season_total_{cat}'] = group[cat].expanding().sum().shift(1)
+#
+#         # Calculate cumulative games played
+#         df.loc[group_idx, 'running_season_games_played'] = group['game_id'].expanding().count().shift(1)
+#
+#         # Calculate running exceptional games and doubles
+#         for i in range(len(group)):
+#             if i == 0:
+#                 continue
+#
+#             # Get stats up to but not including current game
+#             prev_games = group.iloc[:i]
+#
+#             # Calculate exceptional games and doubles for previous games
+#             exceptional_stats = calculate_exceptional_games_and_doubles(
+#                 prev_games,
+#                 thresholds=thresholds_for_exceptional_games
+#             )
+#
+#             # Update stats for current row
+#             for col, value in exceptional_stats.items():
+#                 df.loc[group_idx[i], f'running_season_{col}'] = value
+#
+#     # Fill NaN values in newly added columns
+#     running_season_cols = [col for col in df.columns if col.startswith('running_season_')]
+#     df[running_season_cols] = df[running_season_cols].fillna(0).infer_objects(copy=False)
+#
+#     return df

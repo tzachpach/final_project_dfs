@@ -128,15 +128,17 @@ def predict_fp(df, three_months_only=True, rolling_window=10):
     df['game_date'] = pd.to_datetime(df['game_date'])
 
     df = df.sort_values(['game_date'], ascending=True)
+    df = add_last_season_data_with_extras(df)
+    # df = add_running_season_stats(df)
+    # df = add_anticipated_defensive_stats(df)
+    # df = add_running_season_stats(df)
     if three_months_only:
         df = df[(df['game_date'] >= '2023-01-01') & (df['game_date'] < '2023-04-01')]
 
     # Clean numeric columns and add time-dependent features (assuming these functions are defined)
     df = clean_numeric_columns(df, same_game_cols)
     df = add_time_dependent_features_v2(df, rolling_window=rolling_window)
-
-    # # Remove 'season_year' column if it's no longer needed
-    # df = df.drop('season_year', axis=1, errors='ignore')
+    df = add_basic_player_features(df)
 
     # Prepare features and target variables
     features = df.columns.difference(same_game_cols).tolist()
