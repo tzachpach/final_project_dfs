@@ -124,68 +124,83 @@ def rolling_train_test(X, y, save_model=False, model_dir='models'):
 
 
 def predict_fp(df, three_months_only=True, rolling_window=10):
-    df = df.drop('Unnamed: 0', axis=1, errors='ignore')  # Use errors='ignore' in case the column doesn't exist
+    df.drop('Unnamed: 0', axis=1, errors='ignore', inplace=True)  # Handle potential missing column
     df['game_date'] = pd.to_datetime(df['game_date'])
+    df.sort_values(['game_date'], ascending=True, inplace=True)
 
-    df = df.sort_values(['game_date'], ascending=True)
-    df = add_last_season_data_with_extras(df)
-    # df = add_running_season_stats(df)
-    # df = add_anticipated_defensive_stats(df)
-    # df = add_running_season_stats(df)
-    if three_months_only:
-        df = df[(df['game_date'] >= '2023-01-01') & (df['game_date'] < '2023-04-01')]
+    all_seasons_start_years = [s.split("-")[0] for s in df['season_year'].unique()]
+    # Initialize a list to collect results per year
+    results_list = []
 
-    # Clean numeric columns and add time-dependent features (assuming these functions are defined)
-    df = clean_numeric_columns(df, same_game_cols)
-    df = add_time_dependent_features_v2(df, rolling_window=rolling_window)
-    df = add_basic_player_features(df)
+    for season_year in df['season_year'].unique():
+        print(f"Processing season year: {season_year}")
+        season_df = df[df['season_year'] == season_year].copy()
 
-    # Prepare features and target variables
-    features = df.columns.difference(same_game_cols).tolist()
+        # Apply last season and running season stats only to this year's data
+        season_start_year = season_year.split("-")[0]
+        prev_season_start_year = str(int(season_start_year) - 1)
 
-    # Initialize DataFrame to store results
-    combined_df = pd.DataFrame()
+        if prev_season_start_year in all_seasons_start_years:
+            prev_season_df = df[df['season_year'] == f'{prev_season_start_year}-{season_start_year}']
+            season_df = add_last_season_data_with_extras(season_df, prev_season_df)
 
-    # For each category (statistic) you are predicting
-    for cat in dfs_cats:
-        target = cat
-        X = df[features]
-        y = df[target]
+        season_df = add_running_season_stats(season_df)
 
-        print(f'Training models for {cat}')
-        print('---------------------------------')
+        if three_months_only:
+            season_df = season_df[(season_df['game_date'] >= '2023-01-01') & (season_df['game_date'] < '2023-04-01')]
 
-        # Call rolling_train_test without per-season filtering
-        cat_results = rolling_train_test(X=X, y=y)
-        cat_results.rename(columns={'y': cat, 'y_pred': f'{cat}_pred'}, inplace=True)
+        # Clean numeric columns and add time-dependent features
+        season_df = clean_numeric_columns(season_df, same_game_cols)
+        season_df = add_time_dependent_features_v2(season_df, rolling_window=rolling_window)
+        # season_df = add_basic_player_features(season_df)
 
-        if combined_df.empty:
-            combined_df = cat_results
-        else:
-            combined_df = pd.merge(
-                combined_df,
-                cat_results,
-                on=['player_name', 'game_date', 'game_id', 'fanduel_salary', 'draftkings_salary', 'yahoo_salary',
-                    'fanduel_position', 'draftkings_position', 'yahoo_position'],
-                how='outer',
-                suffixes=('', f'_{cat}'))
 
-        # Save intermediate results if desired
-        cat_results.to_csv(f'output_csv/{cat}_results.csv', index=False)
+        # Prepare features and target variables
+        features = season_df.columns.difference(same_game_cols).tolist()
 
-    # After all categories are processed, compute fantasy points
-    combined_df['fp_fanduel'] = combined_df.apply(lambda row: calculate_fp_fanduel(row), axis=1)
-    combined_df['fp_fanduel_pred'] = combined_df.apply(lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1)
+        combined_df = pd.DataFrame()  # Initialize for this season
 
-    combined_df['fp_yahoo'] = combined_df.apply(calculate_fp_yahoo, axis=1)
-    combined_df['fp_yahoo_pred'] = combined_df.apply(lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1)
+        for cat in dfs_cats:
+            target = cat
+            X = season_df[features]
+            y = season_df[target]
 
-    combined_df['fp_draftkings'] = combined_df.apply(calculate_fp_draftkings, axis=1)
-    combined_df['fp_draftkings_pred'] = combined_df.apply(lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1)
+            print(f'Training models for {cat} in season {season_year}')
+            cat_results = rolling_train_test(X=X, y=y)
+            cat_results.rename(columns={'y': cat, 'y_pred': f'{cat}_pred'}, inplace=True)
+
+            if combined_df.empty:
+                combined_df = cat_results
+            else:
+                combined_df = pd.merge(
+                    combined_df,
+                    cat_results,
+                    on=['player_name', 'game_date', 'game_id', 'fanduel_salary', 'draftkings_salary', 'yahoo_salary',
+                        'fanduel_position', 'draftkings_position', 'yahoo_position'],
+                    how='outer',
+                    suffixes=('', f'_{cat}'))
+
+        # Compute fantasy points for the season
+        combined_df['fp_fanduel'] = combined_df.apply(lambda row: calculate_fp_fanduel(row), axis=1)
+        combined_df['fp_fanduel_pred'] = combined_df.apply(lambda row: calculate_fp_fanduel(row, pred_mode=True),
+                                                           axis=1)
+
+        combined_df['fp_yahoo'] = combined_df.apply(calculate_fp_yahoo, axis=1)
+        combined_df['fp_yahoo_pred'] = combined_df.apply(lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1)
+
+        combined_df['fp_draftkings'] = combined_df.apply(calculate_fp_draftkings, axis=1)
+        combined_df['fp_draftkings_pred'] = combined_df.apply(lambda row: calculate_fp_draftkings(row, pred_mode=True),
+                                                              axis=1)
+
+        results_list.append(combined_df)  # Collect results for this season
+
+    # Concatenate all season results
+    final_results = pd.concat(results_list, ignore_index=True)
 
     res_name = 'fp_xgb_daily_pred_three_months_only' if three_months_only else 'fp_xgb_daily_pred'
-    combined_df.to_csv(f'output_csv/{res_name}.csv', index=False)
-    return combined_df
+    final_results.to_csv(f'output_csv/{res_name}.csv', index=False)
+
+    return final_results
 
 
 df = merge_all_seasons()
