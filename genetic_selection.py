@@ -73,22 +73,82 @@ def get_lineup(df):
     for date in unique_dates:
         spec_date = {"date": date}
         logging.info(f"Running for {date}")
-        for platform in ['yahoo', 'fanduel', 'draftkings']:
+        for platform in ['fanduel']:  # , 'yahoo', 'draftkings'
             df_filtered, best_individual = get_best_lineup(date, df, platform)
             df_filtered_pred, best_individual_pred = get_best_lineup(date, df, platform, pred_flag=True)
 
             spec_date.update({
-                f"max_num_of_players_{platform}": len(df_filtered),
-                f"best_actual_lineup_{platform}": [df_filtered.iloc[i]["player_name"] for i in best_individual],
-                f"best_pred_lineup_{platform}": [df_filtered_pred.iloc[i]["player_name"] for i in best_individual_pred],
-                f"best_actual_score_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual),
-                f"best_pred_score_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}_pred'] for i in best_individual_pred),
-                f"best_actual_score_pred_lineup_{platform}": sum(df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual_pred),
-                f"best_actual_cost_{platform}": sum(df_filtered.iloc[i][f'{platform}_salary'] for i in best_individual),
-                f"best_pred_cost_{platform}": sum(df_filtered_pred.iloc[i][f'{platform}_salary'] for i in best_individual_pred),
-                f"is_repeat_{platform}": len(best_individual) - len(np.unique(best_individual)),
-                f"is_repeat_pred_{platform}": len(best_individual_pred) - len(np.unique(best_individual_pred)),
+                # 1) Count of players in the data for this date/platform
+                f"{platform}_player_pool_count": len(df_filtered),
+
+                # 2) Best lineup chosen by maximizing historical (actual) points
+                f"{platform}_historical_players": [
+                    df_filtered.iloc[i]["player_name"] for i in best_individual
+                ],
+
+                # 3) Best lineup chosen by maximizing predicted points
+                f"{platform}_predicted_players": [
+                    df_filtered_pred.iloc[i]["player_name"] for i in best_individual_pred
+                ],
+
+                # 4) Sum of actual (historical) points for the best historical lineup
+                f"{platform}_historical_points": sum(
+                    df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual
+                ),
+
+                # 5) Sum of predicted points for the best predicted lineup
+                f"{platform}_predicted_points": sum(
+                    df_filtered_pred.iloc[i][f'fp_{platform}_pred'] for i in best_individual_pred
+                ),
+
+                # 6) How well the best predicted lineup performed in reality
+                f"{platform}_predicted_lineup_historical_points": sum(
+                    df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual_pred
+                ),
+
+                # 7) Total salary used by the best historical lineup
+                f"{platform}_historical_salary": sum(
+                    df_filtered.iloc[i][f'{platform}_salary'] for i in best_individual
+                ),
+
+                # 8) Total salary used by the best predicted lineup
+                f"{platform}_predicted_salary": sum(
+                    df_filtered_pred.iloc[i][f'{platform}_salary'] for i in best_individual_pred
+                ),
+
+                # 9) Duplicated players (if any) in the best historical lineup
+                f"{platform}_historical_duplicates": (
+                        len(best_individual) - len(np.unique(best_individual))
+                ),
+
+                # 10) Duplicated players (if any) in the best predicted lineup
+                f"{platform}_predicted_duplicates": (
+                        len(best_individual_pred) - len(np.unique(best_individual_pred))
+                ),
             })
+
+            # ----- Overlap information -----
+            overlap_indices = set(best_individual).intersection(set(best_individual_pred))
+            overlap_player_names = [df_filtered.iloc[i]["player_name"] for i in overlap_indices]
+
+            spec_date.update({
+                # List of players who appear in both lineups
+                f"{platform}_overlap_players": overlap_player_names,
+
+                # Count of overlapping players
+                f"{platform}_overlap_count": len(overlap_indices),
+
+                # Sum of actual points for overlapping players
+                f"{platform}_overlap_historical_points": sum(
+                    df_filtered.iloc[i][f'fp_{platform}'] for i in overlap_indices
+                ),
+
+                # Sum of predicted points for overlapping players
+                f"{platform}_overlap_predicted_points": sum(
+                    df_filtered.iloc[i][f'fp_{platform}_pred'] for i in overlap_indices
+                )
+            })
+
         date_res.append(spec_date)
 
     return pd.DataFrame(date_res)
@@ -177,15 +237,8 @@ res = get_lineup(df)
 predictor_used = 'xgb_daily'
 res_name = f'optimized_lineup_{predictor_used}.csv'
 res.to_csv(res_name, index=False)
-# TODO: understand the current bug with the repeating players
-# TODO: start talking to mentors
 
 
 # TODO: read up on deep q learning
 # TODO: understand why RL and if RL is really needed to solve
 # TODO: manipulate the results and find some KPIs
-
-# TODO: get better df - ctg
-# TODO: get better df - basketball reference
-# TODO: get better df - fanduel
-# TODO: get better df - draftkings
