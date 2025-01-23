@@ -7,8 +7,7 @@ import numpy as np
 import pandas as pd
 from deap import base, creator, tools, algorithms
 
-from fuzzywuzzy import fuzz
-from fuzzywuzzy import process
+from fuzzywuzzy import fuzz, process
 
 
 # Setup logging
