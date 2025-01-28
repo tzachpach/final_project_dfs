@@ -81,8 +81,8 @@ def get_lineup(df):
                 # 1) Count of players in the data for this date/platform
                 f"{platform}_player_pool_count": len(df_filtered),
 
-                # 2) Best lineup chosen by maximizing historical (actual) points
-                f"{platform}_historical_players": [
+                # 2) Best lineup chosen by maximizing GT (actual) points
+                f"{platform}_GT_players": [
                     df_filtered.iloc[i]["player_name"] for i in best_individual
                 ],
 
@@ -91,8 +91,8 @@ def get_lineup(df):
                     df_filtered_pred.iloc[i]["player_name"] for i in best_individual_pred
                 ],
 
-                # 4) Sum of actual (historical) points for the best historical lineup
-                f"{platform}_historical_points": sum(
+                # 4) Sum of actual (GT) points for the best GT lineup
+                f"{platform}_GT_points": sum(
                     df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual
                 ),
 
@@ -102,26 +102,31 @@ def get_lineup(df):
                 ),
 
                 # 6) How well the best predicted lineup performed in reality
-                f"{platform}_predicted_lineup_historical_points": sum(
+                f"{platform}_predicted_lineup_GT_points": sum(
                     df_filtered.iloc[i][f'fp_{platform}'] for i in best_individual_pred
                 ),
 
-                # 7) Total salary used by the best historical lineup
-                f"{platform}_historical_salary": sum(
+                # 7) How well the best GT lineup performed in prediction
+                f"{platform}_predicted_lineup_GT_points": sum(
+                    df_filtered_pred.iloc[i][f'fp_{platform}'] for i in best_individual
+                ),
+
+                # 8) Total salary used by the best GT lineup
+                f"{platform}_GT_salary": sum(
                     df_filtered.iloc[i][f'{platform}_salary'] for i in best_individual
                 ),
 
-                # 8) Total salary used by the best predicted lineup
+                # 9) Total salary used by the best predicted lineup
                 f"{platform}_predicted_salary": sum(
                     df_filtered_pred.iloc[i][f'{platform}_salary'] for i in best_individual_pred
                 ),
 
-                # 9) Duplicated players (if any) in the best historical lineup
-                f"{platform}_historical_duplicates": (
+                # 10) Duplicated players (if any) in the best GT lineup
+                f"{platform}_GT_duplicates": (
                         len(best_individual) - len(np.unique(best_individual))
                 ),
 
-                # 10) Duplicated players (if any) in the best predicted lineup
+                # 11) Duplicated players (if any) in the best predicted lineup
                 f"{platform}_predicted_duplicates": (
                         len(best_individual_pred) - len(np.unique(best_individual_pred))
                 ),
@@ -139,7 +144,7 @@ def get_lineup(df):
                 f"{platform}_overlap_count": len(overlap_indices),
 
                 # Sum of actual points for overlapping players
-                f"{platform}_overlap_historical_points": sum(
+                f"{platform}_overlap_GT_points": sum(
                     df_filtered.iloc[i][f'fp_{platform}'] for i in overlap_indices
                 ),
 
