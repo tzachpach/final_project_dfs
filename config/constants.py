@@ -11,3 +11,44 @@ thresholds_for_exceptional_games = {
     'fp_fanduel': 45,  # Exceptional DFS performance for FanDuel
     'fp_yahoo': 40,  # Exceptional DFS performance for Yahoo
 }
+
+salary_constraints = {
+    "yahoo": {
+        "salary_cap": 200,
+        "positions": {
+            "PG": 1,
+            "SG": 1,
+            "SF": 1,
+            "PF": 1,
+            "C": 1,
+            "G": 1,  # Guard (PG or SG)
+            "F": 1,  # Forward (SF or PF)
+            "UTIL": 1  # Any position
+        }
+    },
+    "fanduel": {
+        "salary_cap": 60000,
+        "positions": {
+            "PG": 2,
+            "SG": 2,
+            "SF": 2,
+            "PF": 2,
+            "C": 1,
+            "UTIL": 0  # Any position
+
+        }
+    },
+    "draftkings": {
+        "salary_cap": 50000,
+        "positions": {
+            "PG": 1,
+            "SG": 1,
+            "SF": 1,
+            "PF": 1,
+            "C": 1,
+            "G": 1,  # Guard (PG or SG)
+            "F": 1,  # Forward (SF or PF)
+            "UTIL": 1  # Any position
+        }
+    }
+}

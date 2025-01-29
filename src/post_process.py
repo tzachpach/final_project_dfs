@@ -64,15 +64,3 @@ def calculate_kpis(row):
     #     row['positions']) > 0 else 0
 
     return precision, recall, f1_score, budget_efficiency_ideal, budget_efficiency_selected #top_player_accuracy, positional_accuracy
-
-#             "lineup_ideal": [data_filtered.iloc[i]["player"] for i in best_individual],
-#             "predicted_score_ideal": sum(data_filtered.iloc[i]["y_pred"] for i in best_individual),
-#             "cost_ideal": sum(data_filtered.iloc[i]["cost"] for i in best_individual),
-#             "actual_score_ideal": sum(data_filtered.iloc[i]["dkfp"] for i in best_individual),
-#             "lineup_selected": [data_filtered_pred.iloc[i]["player"] for i in best_individual_pred],
-#             "predicted_score_selected": sum(data_filtered_pred.iloc[i]["y_pred"] for i in best_individual_pred),
-#             "cost_selected": sum(data_filtered_pred.iloc[i]["cost"] for i in best_individual_pred),
-#             "actual_score_selected": sum(data_filtered_pred.iloc[i]["dkfp"] for i in best_individual_pred)
-#
-df = pd.read_csv('genetic_selection.csv')
-df, agg = post_process_results(df)

@@ -1,8 +1,63 @@
 import pandas as pd
 
 from config.constants import thresholds_for_exceptional_games
-from config.dfs_categories import dfs_cats
+from config.dfs_categories import dfs_cats, same_game_cols
 from config.fantasy_point_calculation import calculate_exceptional_games_and_doubles
+
+
+def add_time_dependent_features_v2(df, rolling_window):
+    # Sort the DataFrame to ensure correct order for rolling calculations
+    df = df.sort_values(['player_name', 'game_date']).reset_index(drop=True)
+
+    # Initialize a list to collect new features
+    new_features_list = []
+
+    # Group by 'player_name'
+    grouped = df.groupby('player_name')
+
+    # For each group (player), compute rolling features
+    for name, group in grouped:
+        # Ensure the group is sorted by 'game_date'
+        group = group.sort_values('game_date').reset_index(drop=True)
+        # Initialize a DataFrame to hold features for this group
+        features = pd.DataFrame(index=group.index)
+
+        # Rolling mean and std
+        rolling = group[same_game_cols].rolling(window=rolling_window, min_periods=1)
+        rolling_mean = rolling.mean()
+        rolling_std = rolling.std()
+
+        # Rename columns
+        rolling_mean.columns = [f'{col}_rolling_{rolling_window}_day_avg' for col in same_game_cols]
+        rolling_std.columns = [f'{col}_rolling_{rolling_window}_day_std' for col in same_game_cols]
+
+        # Collect rolling features
+        features = pd.concat([features, rolling_mean, rolling_std], axis=1)
+
+        # Lags and diffs
+        for lag in [1, 2, 3]:
+            lag_features = group[same_game_cols].shift(lag)
+            lag_features.columns = [f'{col}_lag_{lag}' for col in same_game_cols]
+            diff_features = group[same_game_cols].diff(lag)
+            diff_features.columns = [f'{col}_diff_{lag}' for col in same_game_cols]
+
+            # Concatenate lag and diff features
+            features = pd.concat([features, lag_features, diff_features], axis=1)
+
+        # Add 'player_name' and 'game_date' to features DataFrame
+        features['player_name'] = name
+        features['game_date'] = group['game_date'].values
+
+        # Append the features DataFrame to the list
+        new_features_list.append(features)
+
+    # Concatenate all the features into a single DataFrame
+    new_features_df = pd.concat(new_features_list, ignore_index=True)
+
+    # Merge the new features DataFrame with the original DataFrame
+    df = pd.merge(df, new_features_df, on=['player_name', 'game_date'], how='left')
+
+    return df
 
 
 def add_last_season_data_with_extras(current_df, prev_df):
@@ -25,17 +80,29 @@ def add_last_season_data_with_extras(current_df, prev_df):
 
     agg_data = prev_df.groupby(['player_name', 'team_abbreviation']).agg(**agg_cols).reset_index()
 
-    # Calculate exceptional games and doubles
-    doubles_data = prev_df.groupby(['player_name', 'team_abbreviation']).apply(
-        calculate_exceptional_games_and_doubles, thresholds=thresholds_for_exceptional_games
-    ).reset_index()
+    # Calculate exceptional games and doubles using a modified approach
+    doubles_data = []
+    for (player, team), group in prev_df.groupby(['player_name', 'team_abbreviation']):
+        result = calculate_exceptional_games_and_doubles(group, thresholds=thresholds_for_exceptional_games)
+        doubles_data.append({
+            'player_name': player,
+            'team_abbreviation': team,
+            **result
+        })
 
-    doubles_data.columns = ['player_name', 'team_abbreviation'] + [
-        f'last_season_{col}' for col in doubles_data.columns if col not in ['player_name', 'team_abbreviation']
-    ]
+    doubles_df = pd.DataFrame(doubles_data)
+
+    if doubles_df.empty:
+        # Handle the case where no doubles data was found
+        return current_df
+
+    # Rename columns to add 'last_season_' prefix
+    rename_cols = {col: f'last_season_{col}' for col in doubles_df.columns
+                   if col not in ['player_name', 'team_abbreviation']}
+    doubles_df = doubles_df.rename(columns=rename_cols)
 
     # Merge doubles data into aggregated data
-    agg_data = agg_data.merge(doubles_data, on=['player_name', 'team_abbreviation'], how='left')
+    agg_data = agg_data.merge(doubles_df, on=['player_name', 'team_abbreviation'], how='left')
 
     # Update current_df with last season's stats
     for col in agg_data.columns:
@@ -50,7 +117,6 @@ def add_last_season_data_with_extras(current_df, prev_df):
     current_df[last_season_cols] = current_df[last_season_cols].fillna(0)
 
     return current_df
-
 
 
 def add_running_season_stats(df):

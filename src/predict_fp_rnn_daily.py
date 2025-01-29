@@ -9,8 +9,10 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM
 from sklearn.preprocessing import MinMaxScaler
 
-from constants import *
-from preprocess_merged_csvs import merge_all_seasons
+from config.constants import *
+from config.dfs_categories import dfs_cats, same_game_cols
+from config.fantasy_point_calculation import calculate_fp_fanduel, calculate_fp_yahoo, calculate_fp_draftkings
+from config.feature_engineering import clean_numeric_columns, add_time_dependent_features_v2
 
 
 def assign_league_weeks(df):
@@ -144,7 +146,7 @@ def predict_fp_rnn(df, rolling_window=rolling_window):
     df = df.sort_values(['game_date'], ascending=True)
     df = assign_league_weeks(df)
     df = clean_numeric_columns(df, same_game_cols)
-    df = add_time_dependent_features(df, rolling_window=rolling_window)
+    df = add_time_dependent_features_v2(df, rolling_window=rolling_window)
 
     all_seasons_results = []
 
@@ -188,8 +190,3 @@ def predict_fp_rnn(df, rolling_window=rolling_window):
     combined_df['fp_draftkings_pred'] = combined_df.apply(lambda row: calculate_fp_draftkings(row, pred_mode=True),
                                                           axis=1)
     return combined_df
-
-
-df = merge_all_seasons()
-res = predict_fp_rnn(df)
-res.to_csv('fp_pred_rnn.csv')

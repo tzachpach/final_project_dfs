@@ -1,6 +1,9 @@
 import logging
 import random
 import warnings
+
+from config.constants import salary_constraints
+
 warnings.filterwarnings("ignore")
 
 import numpy as np
@@ -13,46 +16,7 @@ from fuzzywuzzy import fuzz, process
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-salary_constraints = {
-    "yahoo": {
-        "salary_cap": 200,
-        "positions": {
-            "PG": 1,
-            "SG": 1,
-            "SF": 1,
-            "PF": 1,
-            "C": 1,
-            "G": 1,  # Guard (PG or SG)
-            "F": 1,  # Forward (SF or PF)
-            "UTIL": 1  # Any position
-        }
-    },
-    "fanduel": {
-        "salary_cap": 60000,
-        "positions": {
-            "PG": 2,
-            "SG": 2,
-            "SF": 2,
-            "PF": 2,
-            "C": 1,
-            "UTIL": 0  # Any position
 
-        }
-    },
-    "draftkings": {
-        "salary_cap": 50000,
-        "positions": {
-            "PG": 1,
-            "SG": 1,
-            "SF": 1,
-            "PF": 1,
-            "C": 1,
-            "G": 1,  # Guard (PG or SG)
-            "F": 1,  # Forward (SF or PF)
-            "UTIL": 1  # Any position
-        }
-    }
-}
 
 def get_best_match(name, name_list, threshold=80):
     best_match, best_score = process.extractOne(name, name_list, scorer=fuzz.token_set_ratio)
@@ -107,8 +71,8 @@ def get_lineup(df):
                 ),
 
                 # 7) How well the best GT lineup performed in prediction
-                f"{platform}_predicted_lineup_GT_points": sum(
-                    df_filtered_pred.iloc[i][f'fp_{platform}'] for i in best_individual
+                f"{platform}_GT_lineup_predicted_points": sum(
+                    df_filtered.iloc[i][f'fp_{platform}_pred'] for i in best_individual
                 ),
 
                 # 8) Total salary used by the best GT lineup
@@ -229,21 +193,3 @@ def get_best_lineup(date, df, platform="yahoo", pred_flag=False):
 
     best_individual = tools.selBest(population, k=1)[0]
     return df_filtered, best_individual
-
-
-
-# df = df_loader()
-# df = predict_dkfp(df,should_train=True, should_plot=True)
-df = pd.read_csv('output_csv/fp_xgb_daily_pred_three_months_only.csv')
-# salaries_df = pd.read_csv('output_csv/historic_dfs_data_v2.csv')
-
-# df = merge_fp_pred_and_salaries(fp_pred_df)
-res = get_lineup(df)
-predictor_used = 'xgb_daily'
-res_name = f'optimized_lineup_{predictor_used}.csv'
-res.to_csv(res_name, index=False)
-
-
-# TODO: read up on deep q learning
-# TODO: understand why RL and if RL is really needed to solve
-# TODO: manipulate the results and find some KPIs
