@@ -28,6 +28,7 @@ def get_best_match(name, name_list, threshold=80):
 def get_lineup(df):
 
     df = df.reset_index(drop=True)
+    df = df.sort_values('game_date', ascending=True)
 
     # Get the list of unique dates
     unique_dates = df['game_date'].unique()

@@ -12,8 +12,6 @@ def preprocess_pipeline():
     return preprocess_all_seasons_data(all_seasons_df)
 
 def enrich_pipeline(df):
-    df = df[df['season_year'].isin(['2019-20', '2020-21'])]
-    df = df.sort_values(['game_date']).reset_index(drop=True)
 
     df = add_time_dependent_features_v2(df, rolling_window=10)
     df = add_running_season_stats(df)
@@ -51,6 +49,9 @@ def enrich_pipeline(df):
 def main():
     # Step 1: Preprocess data
     preprocessed_df = preprocess_pipeline()
+
+    preprocessed_df = preprocessed_df[preprocessed_df['season_year'].isin(['2019-20', '2020-21'])]
+    preprocessed_df = preprocessed_df.sort_values(['game_date']).reset_index(drop=True)
 
     # Step 2: Enrich data
     enriched_df = enrich_pipeline(preprocessed_df)

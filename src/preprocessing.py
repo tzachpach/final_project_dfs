@@ -58,7 +58,7 @@ def preprocess_all_seasons_data(all_seasons_df):
     all_seasons_df['game_date'] = pd.to_datetime(all_seasons_df['game_date'])
     all_seasons_df.sort_values(['game_date'], ascending=True, inplace=True)
     all_seasons_df = clean_numeric_columns(all_seasons_df, same_game_cols)
-    all_seasons_df['fp_fanduel'] = all_seasons_df.apply(lambda row: calculate_fp_fanduel(row), axis=1)
+    all_seasons_df['fp_fanduel'] = all_seasons_df.apply(calculate_fp_fanduel, axis=1)
     all_seasons_df['fp_yahoo'] = all_seasons_df.apply(calculate_fp_yahoo, axis=1)
     all_seasons_df['fp_draftkings'] = all_seasons_df.apply(calculate_fp_draftkings, axis=1)
     return all_seasons_df

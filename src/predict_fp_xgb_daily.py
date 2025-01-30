@@ -11,7 +11,7 @@ def predict_fp(
     start_date=None,
     end_date=None,
     mode="daily",
-    train_window_days=10,
+    train_window_days=20,
     train_window_weeks=4,
     save_model=True
 ):
@@ -84,7 +84,7 @@ def predict_fp(
     combined_df['fp_draftkings_pred'] = combined_df.apply(lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1)
 
     # Save results
-    res_name = f'fp_xgb_{mode}_pred'
+    res_name = f'fp_xgb_{mode}_pred_{train_window_days}_days'
     if season_year:
         res_name += f'_{season_year}'
     if start_date:
@@ -92,6 +92,10 @@ def predict_fp(
     if end_date:
         res_name += f'_to_{end_date}'
     res_name += '.csv'
+
+    combined_df['fp_fanduel'] = combined_df.apply(calculate_fp_fanduel, axis=1)
+    combined_df['fp_yahoo'] = combined_df.apply(calculate_fp_yahoo, axis=1)
+    combined_df['fp_draftkings'] = combined_df.apply(calculate_fp_draftkings, axis=1)
 
     combined_df.to_csv(f'output_csv/{res_name}', index=False)
     return combined_df
