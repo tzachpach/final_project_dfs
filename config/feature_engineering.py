@@ -1,8 +1,5 @@
 import pandas as pd
 
-from config.dfs_categories import same_game_cols
-
-
 def clean_numeric_columns(df, columns):
     """
     Convert columns to numeric, forcing errors to NaN, and handle specific non-numeric values.
