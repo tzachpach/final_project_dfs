@@ -10,6 +10,13 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="/optimized_lineup_xgb_daily.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
       </map>
     </option>
   </component>
