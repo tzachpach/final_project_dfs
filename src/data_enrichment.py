@@ -61,63 +61,91 @@ def add_time_dependent_features_v2(df, rolling_window):
 
 
 def add_last_season_data_with_extras(current_df, prev_df):
-    """ Add last season aggregates and additional stats to the current DataFrame using data from the previous season. """
+    """
+    Adds last season aggregates and additional stats to current_df using prev_df (the previous season).
+    """
     all_cats = dfs_cats + ['fp_fanduel', 'fp_yahoo', 'fp_draftkings']
 
-    # Predefine all new columns in current_df with None values
+    # Predefine new columns in current_df (important for consistent structure)
     for cat in all_cats:
-        current_df[f'last_season_avg_{cat}'] = None
-    current_df['last_season_games_played'] = None
-    current_df['last_season_double_doubles'] = None
-    current_df['last_season_triple_doubles'] = None
-
+        current_df[f'last_season_avg_{cat}'] = 0  # Initialize with 0
+    current_df['last_season_games_played'] = 0
+    current_df['last_season_double_doubles'] = 0
+    current_df['last_season_triple_doubles'] = 0
     for col in thresholds_for_exceptional_games.keys():
-        current_df[f'last_season_{col}_exceptional_games'] = None
+        current_df[f'last_season_{col}_exceptional_games'] = 0
+
+
+    # --- Check if prev_df is empty ---
+    if prev_df.empty:
+        print("Warning: Previous season DataFrame is empty.  Returning current_df without last season stats.")
+        return current_df  # Return early, already initialized
+
+    # --- Handle players that do not exist in prev season
+    prev_players = prev_df['player_name'].unique()
+    current_players = current_df['player_name'].unique()
+    new_players = set(current_players) - set(prev_players)
+    missing_players_df = pd.DataFrame() # Initialize empty DataFrame
+
+    if new_players:
+        # Create a DataFrame for new players with last_season columns filled with 0
+        new_players_data = []
+        for player in new_players:
+            player_data = {'player_name': player}
+            for col in all_cats:
+                player_data[f'last_season_avg_{col}'] = 0
+            player_data['last_season_games_played'] = 0
+            player_data['last_season_double_doubles'] = 0
+            player_data['last_season_triple_doubles'] = 0
+            for col in thresholds_for_exceptional_games.keys():
+                player_data[f'last_season_{col}_exceptional_games'] = 0
+            new_players_data.append(player_data)
+
+        missing_players_df = pd.DataFrame(new_players_data)
 
     # Calculate aggregate stats for the previous season
     agg_cols = {f'last_season_avg_{cat}': (cat, 'mean') for cat in all_cats}
     agg_cols['last_season_games_played'] = ('game_id', 'count')
+    agg_data = prev_df.groupby('player_name').agg(**agg_cols).reset_index()
 
-    agg_data = prev_df.groupby(['player_name', 'team_abbreviation']).agg(**agg_cols).reset_index()
 
-    # Calculate exceptional games and doubles using a modified approach
+    # Calculate exceptional games and doubles
     doubles_data = []
-    for (player, team), group in prev_df.groupby(['player_name', 'team_abbreviation']):
+    for player_name, group in prev_df.groupby('player_name'):
         result = calculate_exceptional_games_and_doubles(group, thresholds=thresholds_for_exceptional_games)
-        doubles_data.append({
-            'player_name': player,
-            'team_abbreviation': team,
-            **result
-        })
-
+        doubles_data.append({'player_name': player_name, **result})
     doubles_df = pd.DataFrame(doubles_data)
 
+    # --- Handle empty doubles_df CORRECTLY ---
     if doubles_df.empty:
-        # Handle the case where no doubles data was found
-        return current_df
+        # If there are NO double-doubles/triple-doubles, create those columns in agg_data and set to 0
+        agg_data['last_season_double_doubles'] = 0
+        agg_data['last_season_triple_doubles'] = 0
+        for stat in thresholds_for_exceptional_games:
+            agg_data[f'last_season_{stat}_exceptional_games'] = 0
+    else:
+        # --- Rename and Merge (ONLY if doubles_df is NOT empty) ---
+        rename_cols = {
+            col: f'last_season_{col}'
+            for col in doubles_df.columns
+            if col != 'player_name'
+        }
+        doubles_df = doubles_df.rename(columns=rename_cols)
+        agg_data = agg_data.merge(doubles_df, on='player_name', how='left')
 
-    # Rename columns to add 'last_season_' prefix
-    rename_cols = {col: f'last_season_{col}' for col in doubles_df.columns
-                   if col not in ['player_name', 'team_abbreviation']}
-    doubles_df = doubles_df.rename(columns=rename_cols)
+    # --- Combine with missing players (if any) ---
+    if not missing_players_df.empty:
+         agg_data = pd.concat([agg_data, missing_players_df], ignore_index=True).fillna(0)
 
-    # Merge doubles data into aggregated data
-    agg_data = agg_data.merge(doubles_df, on=['player_name', 'team_abbreviation'], how='left')
-
-    # Update current_df with last season's stats
+    # --- Merge with current_df ---
+    # Left merge is CRUCIAL here. We want to keep ALL rows from current_df,
+    # and add data from agg_data where there's a match on 'player_name'.
     for col in agg_data.columns:
-        if col not in ['player_name', 'team_abbreviation']:
-            # Map values from agg_data to current_df based on player_name and team_abbreviation
-            stat_mapping = agg_data.set_index(['player_name', 'team_abbreviation'])[col]
-            temp_idx = current_df.set_index(['player_name', 'team_abbreviation']).index
-            current_df[col] = temp_idx.map(stat_mapping)
-
-    # Fill NaN values in newly added columns only
-    last_season_cols = [col for col in current_df.columns if col.startswith('last_season_')]
-    current_df[last_season_cols] = current_df[last_season_cols].fillna(0)
+        if col != 'player_name':
+            stat_mapping = agg_data.set_index('player_name')[col]
+            current_df[col] = current_df['player_name'].map(stat_mapping).fillna(0)
 
     return current_df
-
 
 def add_running_season_stats(df):
     """ Add running season aggregates and stats up to but not including the current game """
