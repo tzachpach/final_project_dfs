@@ -13,6 +13,7 @@ def predict_fp(
     mode="daily",
     train_window_days=20,
     train_window_weeks=4,
+    percentile_to_filter_over=0.6,
     save_model=True
 ):
     """
@@ -47,6 +48,8 @@ def predict_fp(
         enriched_df = enriched_df[enriched_df['game_date'] >= pd.to_datetime(start_date)]
     if end_date:
         enriched_df = enriched_df[enriched_df['game_date'] <= pd.to_datetime(end_date)]
+    if percentile_to_filter_over:
+        enriched_df = enriched_df[enriched_df['salary-fanduel'] >= enriched_df['salary-fanduel'].quantile(percentile_to_filter_over)]
 
     if enriched_df.empty:
         raise ValueError("No data available after applying filters. Please adjust the filters.")
@@ -91,6 +94,8 @@ def predict_fp(
         res_name += f'_from_{start_date}'
     if end_date:
         res_name += f'_to_{end_date}'
+    if percentile_to_filter_over:
+        res_name += f'_salary_over_{percentile_to_filter_over:.2f}_percentile'
     res_name += '.csv'
 
     combined_df['fp_fanduel'] = combined_df.apply(calculate_fp_fanduel, axis=1)

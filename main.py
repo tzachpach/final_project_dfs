@@ -63,7 +63,8 @@ def main():
     lineup_df = get_lineup(daily_fp_predictions)
 
     # Save the results
-    lineup_df.to_csv('output_csv/final_lineup.csv', index=False)
+    today = pd.Timestamp.today().strftime("%Y-%m-%d")
+    lineup_df.to_csv(f'output_csv/final_lineup_{today}.csv', index=False)
     print("Pipeline completed successfully!")
 
 if __name__ == "__main__":
