@@ -1,42 +1,146 @@
 # Fantasy Basketball Lineup Optimizer
-This project aims to optimize the selection of basketball players for a fantasy sports lineup. It uses historical player data to predict individual player performance and then employs a genetic algorithm to select the best combination of players based on those predictions and other constraints, such as a salary cap.
 
-# Key Components:
-1. Data Loading (merge_salaries_and_gamelogs_v2.py):
-While the data is being loaded and externally, the script merge_salaries_and_gamelogs_v2.py is responsible for 
-merging the existing data into one, comprehensive dataset. This dataset is then used for training the prediction model and for the lineup optimization process.
-The notebook should be run before running the other scripts.
+This repository provides a **single pipeline** for **NBA daily fantasy** tasks: data preprocessing, feature engineering, model training/prediction, lineup optimization, **and** post-analysis comparing predicted lineups to actual contest results. The **entry point** is **`main.py`**, which orchestrates all steps end to end.
 
+---
 
-2. Player Performance Prediction:
-Currently, we use three different methods to predict player performance. 
-In all cases, we use a running window of training and testing, where the moving average of the player's previous performance is used to predict his upcoming performance.
-We currently use three types of models:
-2.1 XGBoost, daily (predict_fp_xgb_daily.py) - trains every day on the last 10 days and predicts the next day's performance.
-2.2 XGBoost, weekly (predict_fp_xgb_weekly.py) - trains over the last 4 weeks of player performance and predicts the next week's performance.
-2.3 RNN, daily (predict_fp_rnn_daily.py) - trains every day on the last 10 days and predicts the next day's performance.
+## Table of Contents
+1. [Overview](#overview)  
+2. [Pipeline Flow](#pipeline-flow)  
+3. [Key Scripts and Modules](#key-scripts-and-modules)  
+4. [Usage](#usage)  
+5. [Contest Outcome Analysis](#contest-outcome-analysis)  
+6. [Future Enhancements](#future-enhancements)
 
-3. Lineup Optimization (genetic_selection.py):
-Implements a genetic algorithm to select the optimal lineup of players.
-Considers constraints like salary cap and positional requirements.
-Optimizes based on predicted player performance and other relevant factors.
+---
 
-4. Data Files:
-The repository contains several CSV files with historical data on players, their performances in past games, and other relevant statistics.
-This data is used for training the prediction model and for the genetic algorithm's optimization process.
+## 1. Overview <a name="overview"></a>
+**Goal**: Combine historical NBA player data (including fantasy salaries, game logs, rolling stats, etc.) to:
 
-5. Evaluation::
-The evaluation of the player performnace prediction model is done on analyze_fp_pred.ipynb notebook.
-The notebook looks at the top 10 players per each position and evaluates the model's performance.
+1. **Predict** each player’s fantasy points (daily or weekly) using **XGBoost** or **RNN**.  
+2. **Optimize** a DFS lineup subject to salary and positional constraints via a **genetic algorithm**.  
+3. **Evaluate** how these predicted lineups compare to real contest results, including potential profit.
 
-# Usage:
-Run the merge_salaries_and_gamelogs_v2.py script to merge the data files.
-Generate player performance predictions using either one of the predicting scripts.
-Optimize your lineup using genetic_selection.py.
+**Features**:
+- **Rolling/lag** features (5 or 10 previous games).  
+- **Cross-season** enrichment (pulling last season’s stats for continuity).  
+- **Per-player** scaling for RNN models (avoids data leakage).  
+- **Comparison** of predicted lineup scores against real DFS contest winning scores (profit analysis).
 
-# Future Enhancements:
-* Evaluate the performance of the Genetic Algorithm, by both using optimal data and by comparing overall result to contest data and see how much competition it would have won. 
-* Integrate real-time player pricing from fantasy platforms
-* Feature engineering - currently the features that are implemented are the averages from the 5 and 10 previous games. Other, and especially price-based features, should be implemented.
-* Explore other prediction models for improved accuracy (DL?)
-* Implement additional optimization algorithms for lineup selection - (RL. LLM?)
+---
+
+## 2. Pipeline Flow <a name="pipeline-flow"></a>
+Running **`main.py`** will:
+
+1. **Preprocess** data  
+   - Merges all relevant season logs into one DataFrame (via `merge_all_seasons()`).  
+   - Cleans & standardizes columns (`preprocess_all_seasons_data()`).
+
+2. **Enrich** data  
+   - Adds rolling/lags/diffs features (`add_time_dependent_features_v2`).  
+   - Accumulates running season stats (`add_running_season_stats`).  
+   - Pulls last season’s data for cross-season continuity (`add_last_season_data_with_extras`).
+
+3. **Predict** fantasy points  
+   - By default, runs **XGBoost** in daily mode (`predict_fp_xgb_daily.predict_fp`), using a rolling 10-day window.  
+   - Alternatively, can call **RNN**-based scripts or hyperparameter tuning. ##TODO: change when it's ready
+
+4. **Optimize** lineups  
+   - **`get_lineup()`** in `lineup_genetic_optimizer.py` uses a **genetic algorithm** to select a high-upside DFS lineup under a salary cap.
+
+5. **Save** final lineup  
+   - Writes to **`output_csv/final_lineup_<date>.csv`** with predicted fantasy points.
+
+6. **(Optional) Analyze** real DFS contests vs. your predicted lineups (see [Contest Outcome Analysis](#contest-outcome-analysis)).
+
+---
+
+## 3. Key Scripts and Modules <a name="key-scripts-and-modules"></a>
+- **`main.py`**  
+  - The central script orchestrating **preprocessing**, **enrichment**, **prediction**, and **genetic lineup** generation.  
+
+- **`src.preprocessing`**  
+  - `merge_all_seasons()`: merges multiple season CSVs.  
+  - `preprocess_all_seasons_data()`: standardizes columns & cleans data.
+
+- **`src.data_enrichment`**  
+  - `add_time_dependent_features_v2()`: rolling/diffs for the last N games.  
+  - `add_running_season_stats()`: accumulative stats within the same season.  
+  - `add_last_season_data_with_extras()`: merges prior season’s data.
+
+- **`src.predict_fp_xgb_daily` / `src.predict_fp_rnn_*`**  
+  - Implements daily or weekly rolling predictions with **XGBoost** or **RNN**.  
+  - By default, `main.py` calls the daily XGBoost method.
+
+- **`src.lineup_genetic_optimizer`**  
+  - `get_lineup()`: runs a **genetic algorithm** to build an optimal DFS lineup.
+
+---
+## 4. Usage <a name="usage"></a>
+1. **Clone & Install**  
+   ```bash
+   git clone https://github.com/tzachpach/final_project_dfs.git
+   cd final_project_dfs
+   pip install -r requirements.txt
+    ```
+   
+* For Apple Silicon GPU acceleration with PyTorch, install PyTorch with MPS support.
+
+2. **Run the Pipeline**  
+   - **`main.py`** orchestrates the entire pipeline.  
+   - By default, it runs XGBoost for daily predictions and genetic lineup optimization.  
+   - To run the RNN model, use the appropriate script in **`src.predict_fp_rnn_*`**.
+
+---
+
+## 5. Contest Outcome Analysis <a name="contest-outcome-analysis"></a>
+To see how your predicted lineups might fare in actual DFS contests, use the notebook that merges:
+
+* Contest data (fanduel_nba_contests.csv)
+* Your predicted lineup CSV (final_lineup_<date>.csv)
+
+### Steps
+1. Generate final lineup: After running main.py, you'll have a file like `output_csv/final_lineup_<date>.csv`.
+Open the notebook (e.g., `analyze_contests_vs_pred.ipynb`):
+* It loads contest results (winning score, min cash line, etc.). 
+* Merges with your predicted lineups by date. 
+* Calculates:
+  * Score difference from winning/min-cash lines.
+  * Whether you would’ve cashed or won. 
+  * Potential profit given entry fee and min-cash/winning payouts. 
+  * Cumulative or daily profit over time (visualized with Seaborn/Matplotlib).
+  See `merged_df['pred_lineup_profit']` for final profit calculations.
+
+Below is a sample snippet:
+
+```
+# Basic Win & Cash Consistency
+num_contests = len(merged_df)
+win_pred_count = merged_df['pred_lineup_would_win'].sum()
+cash_pred_count = merged_df['pred_lineup_would_cash'].sum()
+
+print("Number of contests:", num_contests)
+print("Win rate (predicted):", win_pred_count / num_contests)
+print("Cash rate (predicted):", cash_pred_count / num_contests)
+
+# Profit Calculation
+merged_df['pred_lineup_profit'] = merged_df.apply(compute_profit, axis=1)
+total_profit = merged_df['pred_lineup_profit'].sum()
+avg_profit   = merged_df['pred_lineup_profit'].mean()
+print(f"Total profit: ${total_profit:.2f}, Average per contest: ${avg_profit:.2f}")
+```
+
+Use the visuals (line plots, histograms) to evaluate how close your lineups come to cashing or winning and track long-term performance.
+
+---
+
+## 6. Future Enhancements <a name="future-enhancements"></a>
+* **Extended Feature Engineering**: advanced metrics (pace, usage, synergy, real-time injuries).
+* **Enhanced Tuning**: Bayesian methods or neural architecture search for RNN layers. 
+* **Live Integration**: Real-time DFS salaries & last-minute changes.
+* **Alternative Optimizers**: Reinforcement learning or specialized dynamic programming for lineup selection.
+* **Detailed Bankroll Management**: automatic tracking of ROI across contests, multiple lineup entries, etc.
+
+---
+
+Enjoy using this pipeline for NBA daily fantasy! Please open an issue or submit a pull request for suggestions or improvements.
