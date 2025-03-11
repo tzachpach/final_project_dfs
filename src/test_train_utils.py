@@ -4,9 +4,10 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 
-def rolling_train_test(X, y, df, group_by="date", train_window=10, save_model=False, model_dir="models"):
+def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_model=False, model_dir="models"):
     """
     Rolling train-test function for both daily and weekly training, based on a grouping parameter.
 
@@ -137,3 +138,120 @@ def rolling_train_test(X, y, df, group_by="date", train_window=10, save_model=Fa
     })
 
     return results_df
+
+
+def prepare_train_test_rnn_data(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    target_platform="fanduel",
+    lookback=15,
+    predict_ahead=1,
+    use_standard_scaler=False
+):
+    """
+    Prepares (X_train, y_train) and (X_test, y_test) for an RNN by:
+      1) Doing minimal cleansing + get_dummies on train_df & test_df.
+      2) Building sequences WITH per-player scaling (fit on train, apply on test).
+
+    Returns:
+        X_train, y_train, X_test, y_test, players_test, dates_test, scalers
+    """
+    #################### 1) Sort & Basic Checks ####################
+    train_df = train_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
+    test_df  = test_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
+
+    target_col = f"fp_{target_platform}"
+    if target_col not in train_df.columns or target_col not in test_df.columns:
+        raise ValueError(f"Missing '{target_col}' in train/test DataFrame columns.")
+
+    exclude = {
+        "player_name", "game_id", "game_date",
+        "available_flag", "group_col", "season_year",
+        "fp_draftkings", "fp_fanduel", "fp_yahoo"
+    }
+    cat_cols = [c for c in train_df.columns if "pos-" in c or c in ["team_abbreviation", "opponent"]]
+
+    #################### 2) One-hot encode ####################
+    train_df = pd.get_dummies(train_df, columns=cat_cols, drop_first=True)
+    test_df  = pd.get_dummies(test_df, columns=cat_cols, drop_first=True)
+
+    # Ensure same columns in both
+    all_cols = sorted(set(train_df.columns).union(test_df.columns))
+    train_df = train_df.reindex(columns=all_cols, fill_value=0)
+    test_df  = test_df.reindex(columns=all_cols, fill_value=0)
+
+    feature_cols = [c for c in train_df.columns if c not in exclude]
+
+    #################### 3) Fit Per-Player Scalers on Train ####################
+    # We'll store a dict of scalers keyed by player_name
+    # e.g. scalers[player_name] = {"X": <scaler>, "y": <scaler>}
+    scalers = {}
+
+    # We'll first do a pass to fit scalers for each player on the training data.
+    for player, grp in train_df.groupby("player_name"):
+        # convert to numeric
+        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values.reshape(-1,1)
+
+        # define scalers
+        X_scaler = StandardScaler() if use_standard_scaler else MinMaxScaler()
+        y_scaler = StandardScaler() if use_standard_scaler else MinMaxScaler()
+
+        # fit on the player's train features/target
+        X_scaler.fit(feat_arr)   # shape: (num_rows, num_features)
+        y_scaler.fit(targ_arr)   # shape: (num_rows, 1)
+
+        scalers[player] = {"X": X_scaler, "y": y_scaler}
+
+    #################### 4) Build Train Sequences (scaled) ####################
+    X_train_list, y_train_list = [], []
+    for player, grp in train_df.groupby("player_name"):
+        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+
+        # If no scaler for this player, skip
+        if player not in scalers:
+            continue
+        # apply scaling
+        feat_scaled = scalers[player]["X"].transform(feat_arr)  # shape: (rows, features)
+        targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1,1)).flatten()
+
+        for i in range(lookback, len(grp) - predict_ahead + 1):
+            X_seq = feat_scaled[i - lookback : i]             # shape: (lookback, features)
+            y_val = targ_scaled[i + predict_ahead - 1]       # single float
+            X_train_list.append(X_seq)
+            y_train_list.append(y_val)
+
+    X_train = np.array(X_train_list, dtype=np.float32)
+    y_train = np.array(y_train_list, dtype=np.float32)
+
+    #################### 5) Build Test Sequences (scaled) ####################
+    X_test_list, y_test_list = [], []
+    players_test, dates_test = [], []
+
+    for player, grp in test_df.groupby("player_name"):
+        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        date_arr = grp["game_date"].values
+
+        if player not in scalers:
+            # Means the player wasn't in train
+            continue
+
+        # scale with the same scaler from train
+        feat_scaled = scalers[player]["X"].transform(feat_arr)
+        targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1,1)).flatten()
+
+        for i in range(lookback, len(grp) - predict_ahead + 1):
+            X_seq = feat_scaled[i - lookback : i]
+            y_val = targ_scaled[i + predict_ahead - 1]
+
+            X_test_list.append(X_seq)
+            y_test_list.append(y_val)
+            players_test.append(player)
+            dates_test.append(date_arr[i + predict_ahead - 1])
+
+    X_test = np.array(X_test_list, dtype=np.float32)
+    y_test = np.array(y_test_list, dtype=np.float32)
+
+    return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
