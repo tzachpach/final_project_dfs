@@ -52,3 +52,27 @@ salary_constraints = {
         }
     }
 }
+
+rnn_param_grid = {
+    'hidden_size': [32, 64],
+    'num_layers': [1, 3],
+    'dropout_rate': [0.2],
+    'learning_rate': [0.001],
+    'rnn_type': ['LSTM', 'GRU'],
+    'train_window': [10, 20],
+    'epochs': [15],
+    'batch_size': [32],
+    'lookback': [10, 20],
+}
+
+best_params = {
+    "hidden_size": 64,
+    "num_layers": 1,
+    "dropout_rate": 0.2,
+    "learning_rate": 0.001,
+    "rnn_type": "GRU",
+    "train_window": 10,
+    "epochs": 15,
+    "batch_size": 32,
+    "lookback": 10
+}
