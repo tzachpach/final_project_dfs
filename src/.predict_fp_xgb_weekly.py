@@ -1,16 +1,13 @@
 import logging
 import numpy as np
 import pandas as pd
-import xgboost as xgb
-import os
-import pickle
-from sklearn.metrics import mean_squared_error, r2_score
 
 from config.constants import rolling_window
 from config.dfs_categories import same_game_cols, dfs_cats
 from config.fantasy_point_calculation import calculate_fp_fanduel, calculate_fp_yahoo, calculate_fp_draftkings
-from config.feature_engineering import clean_numeric_columns, add_time_dependent_features_v2
-from src.test_train_utils import rolling_train_test
+from config.feature_engineering import clean_numeric_columns
+from src.data_enrichment import add_time_dependent_features_v2
+from src.test_train_utils import rolling_train_test_for_xgb
 
 
 def predict_fp(df, rolling_window=rolling_window, three_months_only=True):
@@ -42,7 +39,7 @@ def predict_fp(df, rolling_window=rolling_window, three_months_only=True):
 
             print(f'Training models for {cat}')
             print('---------------------------------')
-            cat_results = rolling_train_test(X, y, df, group_by="week", train_window=4, save_model=True)
+            cat_results = rolling_train_test_for_xgb(X, y, df, group_by="week", train_window=4, save_model=True)
             cat_results.rename(columns={'y': cat, 'y_pred': f'{cat}_pred'}, inplace=True)
             if len(season_results) == 0:
                 season_results = cat_results
