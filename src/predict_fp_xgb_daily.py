@@ -2,7 +2,7 @@ import pandas as pd
 
 from config.dfs_categories import same_game_cols, dfs_cats
 from config.fantasy_point_calculation import calculate_fp_fanduel, calculate_fp_yahoo, calculate_fp_draftkings
-from src.test_train_utils import rolling_train_test
+from src.test_train_utils import rolling_train_test_for_xgb
 
 
 def predict_fp(
@@ -64,7 +64,7 @@ def predict_fp(
         y = enriched_df[target]
 
         print(f"Training models for {cat} (Mode: {mode})")
-        cat_results = rolling_train_test(
+        cat_results = rolling_train_test_for_xgb(
             X, y, enriched_df, group_by=group_by, train_window=train_window, save_model=save_model
         )
 
