@@ -1,8 +1,10 @@
 import pandas as pd
 
+from config.constants import best_params
 from src.data_enrichment import add_last_season_data_with_extras, add_time_dependent_features_v2, \
     add_running_season_stats
 from src.lineup_genetic_optimizer import get_lineup
+from src.predict_fp_rnn_weekly import *
 from src.predict_fp_xgb_daily import predict_fp
 from src.preprocessing import merge_all_seasons, preprocess_all_seasons_data
 
@@ -55,19 +57,29 @@ def enrich_pipeline(df):
 
 def main():
     # Step 1: Preprocess data
+    print("Starting pipeline...")
     preprocessed_df = preprocess_pipeline()
 
     preprocessed_df = preprocessed_df[preprocessed_df['season_year'].isin(['2021-22', '2022-23'])]
     preprocessed_df = preprocessed_df.sort_values(['game_date']).reset_index(drop=True)
-
+    print("Preprocessing completed successfully!")
     # Step 2: Enrich data
     enriched_df = enrich_pipeline(preprocessed_df)
-
+    print("Enrichment completed successfully!")
     # Step 3: Train models and predict fantasy points
-    daily_fp_predictions = predict_fp(enriched_df, mode="daily", train_window_days=10)
 
+    # daily_fp_predictions = predict_fp(enriched_df, mode="daily", train_window_days=10)
+    daily_fp_prediction = run_rnn_and_merge_results(
+        df=enriched_df,
+        platform="fanduel",
+        group_by="week",
+        step_size=6,  # or 1 if you want to train every group
+        **best_params
+    )
+
+    print("Daily fantasy point predictions completed successfully!")
     # Step 4: Optimize lineups
-    lineup_df = get_lineup(daily_fp_predictions)
+    lineup_df = get_lineup(daily_fp_prediction)
 
     # Save the results
     today = pd.Timestamp.today().strftime("%Y-%m-%d")

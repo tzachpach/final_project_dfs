@@ -413,9 +413,8 @@ def run_rnn_and_merge_results(
     # Merge with original to bring back player_name, game_id, game_date, etc.
     keep_cols = [
         "player_name", "game_id", "game_date",
-        "fanduel_salary", "draftkings_salary", "yahoo_salary",
-        "pos-fanduel", "pos-draftkings", "pos-yahoo",
-        f"fp_{platform}"
+        "salary-fanduel", "salary-draftkings", "salary-yahoo",
+        "pos-fanduel", "pos-draftkings", "pos-yahoo"
     ]
     keep_cols = [c for c in keep_cols if c in df.columns]
 
@@ -428,61 +427,54 @@ def run_rnn_and_merge_results(
         how="right"
     )
 
+    merged = merged.rename(columns={
+        "salary-fanduel": "fanduel_salary",
+        "salary-draftkings": "draftkings_salary",
+        "salary-yahoo": "yahoo_salary",
+        "pos-fanduel": "fanduel_position",
+        "pos-draftkings": "draftkings_position",
+        "pos-yahoo": "yahoo_position"
+    })
+
     return merged
 
-################################################################################
-# Example usage in your main.py:
+
+# def tune_rnn_hyperparameters(df, param_grid=rnn_param_grid, group_by="week", platform="fanduel"):
+#     """
+#     Tunes hyperparameters for the RNN model using a rolling window approach.
+#     """
 #
-# from src.rnn_model import run_rnn_and_merge_results
-# daily_fp_prediction = run_rnn_and_merge_results(
-#     df=enriched_df,
-#     platform="fanduel",
-#     group_by="week",
-#     step_size=6  # train/predict every 6 weeks
-#     # best_params are automatically unpacked
-# )
+#     results = []
+#     # Use itertools.product to get all combinations of hyperparameters
+#     keys, values = zip(*param_grid.items())
+#     i = 0
+#     for combination in itertools.product(*values):
+#         params = dict(zip(keys, combination))  # Create dict for current combination
+#         print(f"Testing parameters: {params}")
 #
-# # This will produce a single merged DataFrame with your predictions
-# # For lineups or further analysis, you can now use daily_fp_prediction
-
-
-
-def tune_rnn_hyperparameters(df, param_grid=rnn_param_grid, group_by="week", platform="fanduel"):
-    """
-    Tunes hyperparameters for the RNN model using a rolling window approach.
-    """
-
-    results = []
-    # Use itertools.product to get all combinations of hyperparameters
-    keys, values = zip(*param_grid.items())
-    i = 0
-    for combination in itertools.product(*values):
-        params = dict(zip(keys, combination))  # Create dict for current combination
-        print(f"Testing parameters: {params}")
-
-        # Call run_and_merge_results with the current set of hyperparameters
-
-        results_df = run_rnn_and_merge_results(df, platform=platform, group_by=group_by, **params)
-        results_df.to_csv(f'version_{i}.csv')
-        i += 1
-
-        # Calculate evaluation metrics (RMSE, MAE, R^2)
-        rmse = np.sqrt(mean_squared_error(results_df['fp_fanduel_y'], results_df['fp_fanduel_pred']))
-        mae = mean_absolute_error(results_df['fp_fanduel_y'], results_df['fp_fanduel_pred'])
-        r2 = r2_score(results_df['fp_fanduel_y'], results_df['fp_fanduel_pred'])
-        print(f"RMSE: {rmse:.4f}, MAE: {mae:.4f}, R^2: {r2:.4f}")
-
-        # Store results with hyperparameter values
-        results.append({
-            **params,  # Store all hyperparameters
-            'rmse': rmse,
-            'mae': mae,
-            'r2': r2,
-        })
-
-
-    # Convert results to DataFrame and sort
-    final_results_df = pd.DataFrame(results)
-    final_results_df = final_results_df.sort_values(by='rmse', ascending=True) # Sort by RMSE
-    final_results_df.to_csv('final_results_rnn.csv')
-    return final_results_df
+#         # Call run_and_merge_results with the current set of hyperparameters
+#
+#         results_df = run_rnn_and_merge_results(df, platform=platform, group_by=group_by, **params)
+#         results_df.to_csv(f'version_{i}.csv')
+#         i += 1
+#
+#         # Calculate evaluation metrics (RMSE, MAE, R^2)
+#         rmse = np.sqrt(mean_squared_error(results_df['fp_fanduel_y'], results_df['fp_fanduel_pred']))
+#         mae = mean_absolute_error(results_df['fp_fanduel_y'], results_df['fp_fanduel_pred'])
+#         r2 = r2_score(results_df['fp_fanduel_y'], results_df['fp_fanduel_pred'])
+#         print(f"RMSE: {rmse:.4f}, MAE: {mae:.4f}, R^2: {r2:.4f}")
+#
+#         # Store results with hyperparameter values
+#         results.append({
+#             **params,  # Store all hyperparameters
+#             'rmse': rmse,
+#             'mae': mae,
+#             'r2': r2,
+#         })
+#
+#
+#     # Convert results to DataFrame and sort
+#     final_results_df = pd.DataFrame(results)
+#     final_results_df = final_results_df.sort_values(by='rmse', ascending=True) # Sort by RMSE
+#     final_results_df.to_csv('final_results_rnn.csv')
+#     return final_results_df
