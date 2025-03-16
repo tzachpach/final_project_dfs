@@ -6,6 +6,7 @@ import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
+from config.constants import select_device
 
 def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_model=False, model_dir="models"):
     """
@@ -82,7 +83,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
 
         # Model parameters
         params = {
-            "tree_method": "hist",  # Use "gpu_hist" if you have a GPU
+            "tree_method": "gpu_hist" if select_device() == "mps" else "hist",  # Use "gpu_hist" if you have a GPU
             "enable_categorical": True,
         }
 
