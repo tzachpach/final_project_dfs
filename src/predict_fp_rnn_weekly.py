@@ -412,7 +412,7 @@ def run_rnn_and_merge_results(
 
     # Merge with original to bring back player_name, game_id, game_date, etc.
     keep_cols = [
-        "player_name", "game_id", "game_date",
+        "player_name", "game_id", "game_date", "minutes_played",
         "salary-fanduel", "salary-draftkings", "salary-yahoo",
         "pos-fanduel", "pos-draftkings", "pos-yahoo"
     ]

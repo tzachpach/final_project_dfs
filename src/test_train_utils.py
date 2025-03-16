@@ -39,7 +39,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
 
     # Initialize lists to store results
     all_predictions, all_true_values = [], []
-    all_game_ids, all_game_dates, all_player_names = [], [], []
+    all_game_ids, all_game_dates, all_player_names, all_minutes_played = [], [], [], []
     all_fanduel_salaries, all_draftkings_salaries, all_yahoo_salaries = [], [], []
     all_fanduel_positions, all_draftkings_positions, all_yahoo_positions = [], [], []
 
@@ -98,6 +98,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
         all_game_ids.extend(identifying_test_data["game_id"].tolist())
         all_game_dates.extend(identifying_test_data["game_date"].tolist())
         all_player_names.extend(identifying_test_data["player_name"].tolist())
+        all_minutes_played.extend(X_test["minutes_played"].tolist())
         all_fanduel_salaries.extend(X_test["salary-fanduel"].tolist())
         all_draftkings_salaries.extend(X_test["salary-draftkings"].tolist())
         all_yahoo_salaries.extend(X_test["salary-yahoo"].tolist())
@@ -125,6 +126,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
     # Compile results into a DataFrame
     results_df = pd.DataFrame({
         "player_name": all_player_names,
+        "minutes_played": all_minutes_played,
         "game_id": all_game_ids,
         "game_date": all_game_dates,
         "y": all_true_values,
