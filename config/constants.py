@@ -1,3 +1,5 @@
+import torch
+
 rolling_window = 10
 
 thresholds_for_exceptional_games = {
@@ -76,3 +78,15 @@ best_params = {
     "batch_size": 32,
     "lookback": 10
 }
+
+def select_device():
+    """
+    Chooses 'mps' device on Apple Silicon if available, else CPU.
+    """
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
+    print("Using device:", device)
+    return device

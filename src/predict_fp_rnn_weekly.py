@@ -7,23 +7,7 @@ import torch.optim as optim
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-from config.constants import rnn_param_grid
-
-
-###############################################################################
-# 1) Select MPS Device if Available
-###############################################################################
-def select_device():
-    """
-    Chooses 'mps' device on Apple Silicon if available, else CPU.
-    """
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-
-    print("Using device:", device)
-    return device
+from config.constants import rnn_param_grid, select_device
 
 
 ###############################################################################
