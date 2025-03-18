@@ -1,0 +1,16 @@
+# Core Python data manipulation
+numpy==1.23.5
+pandas==1.5.3
+
+# ML / stats
+scikit-learn==1.2.2
+xgboost==1.7.5
+
+# Plotting / Analysis
+matplotlib==3.7.1
+seaborn==0.12.2
+
+# Deep Learning
+torch==2.0.0
+
+tqdm==4.65.0
