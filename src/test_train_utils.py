@@ -6,7 +6,6 @@ import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-from config.constants import select_device
 
 def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_model=False, model_dir="models"):
     """
@@ -75,7 +74,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
                 X_train[col] = pd.to_numeric(X_train[col], errors="coerce")
                 X_test[col] = pd.to_numeric(X_test[col], errors="coerce")
 
-        identifying_test_data = df[df["group_col"] == current_group][["player_name", "game_date", "game_id"]].drop_duplicates()
+        identifying_test_data = df[df["group_col"] == current_group][["player_name", "game_date", "game_id", "minutes_played"]].drop_duplicates()
 
         # Create DMatrix for training and testing
         dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
@@ -83,7 +82,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
 
         # Model parameters
         params = {
-            "tree_method": "gpu_hist" if select_device() == "mps" else "hist",  # Use "gpu_hist" if you have a GPU
+            "tree_method": "hist", # Use "gpu_hist" if you have a GPU
             "enable_categorical": True,
         }
 
@@ -99,7 +98,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
         all_game_ids.extend(identifying_test_data["game_id"].tolist())
         all_game_dates.extend(identifying_test_data["game_date"].tolist())
         all_player_names.extend(identifying_test_data["player_name"].tolist())
-        all_minutes_played.extend(X_test["minutes_played"].tolist())
+        all_minutes_played.extend(identifying_test_data["minutes_played"].tolist())
         all_fanduel_salaries.extend(X_test["salary-fanduel"].tolist())
         all_draftkings_salaries.extend(X_test["salary-draftkings"].tolist())
         all_yahoo_salaries.extend(X_test["salary-yahoo"].tolist())
