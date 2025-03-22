@@ -56,27 +56,31 @@ salary_constraints = {
 }
 
 rnn_param_grid = {
-    'hidden_size': [32, 64],
-    'num_layers': [1, 3],
+    "step_size": [1],
+    'hidden_size': [32],
+    'num_layers': [1, 5],
     'dropout_rate': [0.2],
-    'learning_rate': [0.001],
+    'learning_rate': [0.001, 0.01],
     'rnn_type': ['LSTM', 'GRU'],
-    'train_window': [10, 20],
-    'epochs': [15],
-    'batch_size': [32],
-    'lookback': [10, 20],
+    'train_window': [4, 8],
+    'epochs': [15, 20],
+    'batch_size': [32, 64],
+    'lookback': [4, 8],
+    "salary_threshold": [0.4, 0.6]
 }
 
 best_params = {
+    "step_size": 1,
     "hidden_size": 64,
     "num_layers": 1,
     "dropout_rate": 0.2,
     "learning_rate": 0.001,
     "rnn_type": "GRU",
-    "train_window": 10,
+    "train_window": 4,
     "epochs": 15,
     "batch_size": 32,
-    "lookback": 10
+    "lookback": 4,
+    "salary_threshold": 0.6
 }
 
 def select_device():
