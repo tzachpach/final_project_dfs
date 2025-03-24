@@ -91,7 +91,7 @@ def evaluate_lineups_vs_contests(
     def compute_profit(row):
         # Extremely simplified logic
         if row['pred_lineup_would_win']:
-            return row['prizepool'] - row['cost']
+            return row['winning_payout'] - row['cost']
         elif row['pred_lineup_would_cash']:
             return row['mincash_payout'] - row['cost']
         else:
