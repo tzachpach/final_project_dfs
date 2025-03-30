@@ -72,8 +72,8 @@ else:
                 # 1. Filter for 'site'
                 site_filter = merged_df['site'].isin(['fanduel', 'fanduel_single', 'fanduel_super'])
 
-                # 2. Filter for 'title'
-                title_filter = merged_df['title'].isin(['Main', 'NBA - Main'])
+                # 2. Filter for 'Title'
+                title_filter = merged_df['Title'].isin(['Main', 'NBA - Main'])
 
                 # 3. Filter for 'total_entrants'
                 entrants_filter = merged_df['total_entrants'] >= 20
