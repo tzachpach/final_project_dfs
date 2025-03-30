@@ -5,7 +5,7 @@ from src.data_enrichment import add_last_season_data_with_extras, add_time_depen
     add_running_season_stats
 from src.lineup_genetic_optimizer import get_lineup
 from src.predict_fp_rnn_weekly import *
-from src.predict_fp_xgb_daily import predict_fp
+from src.predict_fp_xgb_daily import predict_fp_xgb
 from src.preprocessing import merge_all_seasons, preprocess_all_seasons_data
 
 
@@ -68,7 +68,7 @@ def main():
     print("Enrichment completed successfully!")
     # Step 3: Train models and predict fantasy points
 
-    # daily_fp_predictions = predict_fp(enriched_df, mode="daily", train_window_days=10)
+    daily_fp_predictions = predict_fp_xgb(enriched_df, mode="daily", train_window_days=10)
     daily_fp_prediction = run_rnn_and_merge_results(
         df=enriched_df,
         platform="fanduel",
