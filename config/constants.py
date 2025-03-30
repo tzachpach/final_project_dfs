@@ -72,12 +72,12 @@ rnn_param_grid = {
 best_params = {
     "step_size": 1,
     "hidden_size": 64,
-    "num_layers": 1,
+    "num_layers": 3,
     "dropout_rate": 0.2,
     "learning_rate": 0.001,
-    "rnn_type": "GRU",
+    "rnn_type": "LSTM",
     "train_window": 4,
-    "epochs": 15,
+    "epochs": 20,
     "batch_size": 32,
     "lookback": 4,
     "salary_threshold": 0.6
