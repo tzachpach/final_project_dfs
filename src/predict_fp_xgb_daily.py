@@ -3,9 +3,9 @@ from config.dfs_categories import same_game_cols, dfs_cats
 from config.fantasy_point_calculation import calculate_fp_fanduel, calculate_fp_yahoo, calculate_fp_draftkings
 from src.test_train_utils import rolling_train_test_for_xgb
 
-def predict_fp(
+def predict_fp_xgb(
     enriched_df,
-    season_year='2022-23',
+    season_year=None,
     start_date=None,
     end_date=None,
     mode="daily",
@@ -184,5 +184,9 @@ def predict_fp(
                 }
                 all_runs.append((run_info, result_df))
 
-    # if multi-run
-    return all_runs
+    # If we did multi-run, return the list of results
+    if do_multi_run:
+        return all_runs
+    else:
+        # Single-run scenario, return the last result
+        return result_df
