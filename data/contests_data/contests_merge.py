@@ -13,11 +13,11 @@ import glob # Use glob for easier pattern matching of files
 
 # --- User Configuration ---
 # IMPORTANT: Replace this with the actual path to the folder containing your 163 CSV files
-csv_directory = r'/Users/admin/Library/Mobile Documents/com~apple~CloudDocs/IDC MLDS MSc 2021/GPT_AI_Research/DFS/final_project_dfs/data/contests_data/dfs_contests_2023-24'
+csv_directory = r'/Users/admin/Library/Mobile Documents/com~apple~CloudDocs/IDC MLDS MSc 2021/GPT_AI_Research/DFS/final_project_dfs/data/contests_data/dfs_contests_2021-22'
 
 # Define the names for your output files
-merged_output_file = 'dfs_contests_2023_24_merged.csv'
-filtered_output_file = 'dfs_contests_2023_24_fanduel_filtered.csv'
+merged_output_file = 'dfs_contests_2021_22_merged.csv'
+filtered_output_file = 'dfs_contests_2021_22_fanduel_filtered.csv'
 # --- End User Configuration ---
 
 # --- Task 1: Merge all CSV files ---
