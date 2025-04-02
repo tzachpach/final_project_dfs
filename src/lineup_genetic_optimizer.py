@@ -189,7 +189,11 @@ def get_best_lineup(date, df, platform="fanduel", pred_flag=False):
     toolbox.register("mutate", mutate)
     toolbox.register("select", tools.selTournament, tournsize=3)
 
-    population = toolbox.population(n=min(len(df_filtered), 50))
+    try:
+        population = toolbox.population(n=min(len(df_filtered), 50))
+    except:
+        logging.error(f"Population size is too large for the given date, {date}.")
+        return df_filtered, []
     algorithms.eaSimple(population, toolbox, cxpb=0.5, mutpb=0.2, ngen=10, verbose=False)
 
     best_individual = tools.selBest(population, k=1)[0]
