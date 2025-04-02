@@ -6,8 +6,11 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from functools import reduce
 
 from config.constants import rnn_param_grid, select_device
+from config.dfs_categories import dfs_cats
+from config.fantasy_point_calculation import calculate_fp_fanduel
 
 
 ###############################################################################
@@ -33,7 +36,11 @@ def prepare_train_test_rnn_data(
     train_df = train_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
     test_df  = test_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
 
-    target_col = f"fp_{target_platform}"
+    if target_platform not in ["fanduel", "draftkings", "yahoo"]:
+        target_col = target_platform
+    else:
+        target_col = f"fp_{target_platform}"
+
     if target_col not in train_df.columns or target_col not in test_df.columns:
         raise ValueError(f"Missing '{target_col}' in train/test DataFrame columns.")
 
@@ -222,6 +229,8 @@ def rolling_train_test_rnn(
     epochs,
     batch_size,
     rnn_type,
+    salary_threshold,
+    multi_target_mode,
     group_by="week",
     predict_ahead=1,
     platform="fanduel",
@@ -242,8 +251,8 @@ def rolling_train_test_rnn(
     device = select_device()
 
     # Example filter: only consider top 40% salaries in 2021-22
-    threshold = df[df['season_year'] == '2021-22']['salary-fanduel'].quantile(0.6)
-
+    threshold = df[df['season_year'] == '2016-17']['salary-fanduel'].quantile(salary_threshold)
+    threshold = threshold if not pd.isna(threshold) else 0
     df = df.copy().dropna()
 
     df = df[df['salary-fanduel'] >= threshold]
@@ -268,6 +277,43 @@ def rolling_train_test_rnn(
     all_dates = []
 
     # Rolling loop
+    if multi_target_mode:
+        all_category_results = []
+        for cat in dfs_cats:
+            cat_df = df.copy()
+            cat_result = rolling_train_test_rnn(
+                cat_df,
+                train_window,
+                lookback,
+                hidden_size,
+                num_layers,
+                learning_rate,
+                dropout_rate,
+                epochs,
+                batch_size,
+                rnn_type,
+                salary_threshold,
+                multi_target_mode=False,
+                platform=cat
+            )
+            cat_result.rename(columns={
+                "y_true": f"{cat}",
+                "y_pred": f"{cat}_pred"
+            }, inplace=True)
+            cat_result.to_csv(f"{cat}.csv", index=False)
+            all_category_results.append(cat_result)
+        combined_df = reduce(lambda left, right: pd.merge(
+            left, right,
+            on=["player_name", "game_date"],
+            how="outer"
+        ), all_category_results)
+        combined_df = combined_df.drop_duplicates(["player_name", "game_date"])
+        combined_df["fp_fanduel_pred"] = combined_df.apply(lambda row: calculate_fp_fanduel(row, pred_mode=True),
+                                                           axis=1)
+        combined_df["fp_fanduel"] = combined_df.apply(calculate_fp_fanduel, axis=1)
+        combined_df['game_date'] = pd.to_datetime(combined_df['game_date'])
+        return combined_df
+
     # e.g. if step_size=6 => only do iteration every 6 groups
     for i in range(train_window, len(unique_groups), step_size):
         current_group = unique_groups[i]
@@ -367,7 +413,6 @@ def run_rnn_and_merge_results(
     df,
     group_by="week",
     platform="fanduel",
-    step_size=1,  # Train & predict every single group by default
     **best_params
 ):
     """
@@ -384,7 +429,6 @@ def run_rnn_and_merge_results(
         df=df,
         group_by=group_by,
         platform=platform,
-        step_size=step_size,  # Possibly 6 or 1
         **best_params
     )
 
@@ -405,10 +449,10 @@ def run_rnn_and_merge_results(
     df_lookup = df[keep_cols].drop_duplicates(subset=["player_name", "game_id", "game_date"])
 
     merged = pd.merge(
-        df_lookup,
         results_df[["player_name", "game_date", f"fp_{platform}", f"fp_{platform}_pred"]],
+        df_lookup,
         on=["player_name", "game_date"],
-        how="right"
+        how="left"
     )
 
     merged = merged.rename(columns={
@@ -421,7 +465,6 @@ def run_rnn_and_merge_results(
     })
 
     return merged
-
 
 # def tune_rnn_hyperparameters(df, param_grid=rnn_param_grid, group_by="week", platform="fanduel"):
 #     """
