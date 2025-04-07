@@ -246,7 +246,7 @@ def compute_shap_importances(
 def evaluate_results(
         prediction_df,
         lineup_df,
-        contests_df,
+        contests_df=pd.read_csv("../data/contests_data/fanduel_nba_contests.csv"),
         categories=dfs_cats + ["fp_fanduel"],
         top_percentiles=[20, 10],
         salary_col="fanduel_salary",
