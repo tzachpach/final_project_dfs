@@ -115,6 +115,7 @@ def predict_fp_xgb(
             print(f"\n--- Rolling XGB for cat={cat}, train_window={tw}, percentile={p}, xgb_params={xgb_params} ---")
             cat_results = rolling_train_test_for_xgb(
                 X, y, local_df,
+                n_percent=percentile_to_filter_over,
                 group_by=group_by,
                 train_window=tw,
                 save_model=save_model,

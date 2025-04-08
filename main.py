@@ -3,6 +3,7 @@ import pandas as pd
 from config.constants import best_params
 from src.data_enrichment import add_last_season_data_with_extras, add_time_dependent_features_v2, \
     add_running_season_stats
+from src.evaluate_results import evaluate_results
 from src.lineup_genetic_optimizer import get_lineup
 from src.predict_fp_rnn_weekly import *
 from src.predict_fp_xgb_daily import predict_fp_xgb
@@ -68,8 +69,8 @@ def main():
     print("Enrichment completed successfully!")
     # Step 3: Train models and predict fantasy points
 
-    daily_fp_predictions = predict_fp_xgb(enriched_df, mode="daily", train_window_days=10)
-    # daily_fp_predictions = run_rnn_and_merge_results(
+    predictions_df = predict_fp_xgb(enriched_df, mode="daily", train_window_days=10)
+    # predictions_df = run_rnn_and_merge_results(
     #     df=enriched_df,
     #     platform="fanduel",
     #     group_by="week",
@@ -78,12 +79,13 @@ def main():
     # )
     print("Daily fantasy point predictions completed successfully!")
     # Step 4: Optimize lineups
-    lineup_df = get_lineup(daily_fp_predictions)
-
+    lineup_df = get_lineup(predictions_df)
+    today = pd.Timestamp.now().strftime("%Y-%m-%d")
+    lineup_df.to_csv(f"output/lineup_{today}.csv", index=False)
     # Save the results
-    today = pd.Timestamp.today().strftime("%Y-%m-%d")
-    lineup_df.to_csv(f'output_csv/final_lineup_{today}.csv', index=False)
-    print("Pipeline completed successfully!")
+    print("Lineup calculations completed successfully!")
+    df_overall_results, df_percentile_data = evaluate_results(predictions_df, lineup_df)
+    print("Evaluation results completed successfully!")
 
 if __name__ == "__main__":
     main()
