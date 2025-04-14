@@ -64,7 +64,26 @@ def add_last_season_data_with_extras(current_df, prev_df):
     """
     Adds last season aggregates and additional stats to current_df using prev_df (the previous season).
     """
-    all_cats = dfs_cats + ['fp_fanduel', 'fp_yahoo', 'fp_draftkings']
+    # Instead of a set, define bracket_quantiles as a LIST, so we have a fixed order:
+    bracket_quantiles = [0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50]
+
+    # Then compute the numeric thresholds from prev_df's salary distribution:
+    bracket_thresholds = {}
+    for q in bracket_quantiles:
+        bracket_thresholds[q] = prev_df['salary-fanduel'].quantile(q)
+
+    # Initialize the column in current_df
+    current_df['salary_quantile'] = 0.0
+
+    # Sort bracket_thresholds by the numeric cutoff ascending (lowest threshold first).
+    # That way, the largest threshold is last, so it overwrites if the player's salary meets that bracket.
+    for q, cutoff in sorted(bracket_thresholds.items(), key=lambda x: x[1]):
+        # If the player's current salary >= this cutoff, set the bracket to q
+        # This will overwrite smaller quantile assignments with bigger quantile ones,
+        # ensuring the final bracket is the highest that the player meets.
+        current_df.loc[current_df['salary-fanduel'] >= cutoff, 'salary_quantile'] = q
+
+    all_cats = dfs_cats + ['fp_fanduel']#, 'fp_yahoo', 'fp_draftkings']
 
     # Predefine new columns in current_df (important for consistent structure)
     for cat in all_cats:
