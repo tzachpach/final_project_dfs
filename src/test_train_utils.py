@@ -7,7 +7,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 
-def rolling_train_test_for_xgb(X, y, df, group_by="date", n_percent=10, train_window=10, save_model=False, model_dir="models"):
+def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_model=False, model_dir="models"):
     """
     Rolling train-test function for both daily and weekly training, based on a grouping parameter.
 
@@ -108,7 +108,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", n_percent=10, train_wi
 
         # Save the model if requested
         if save_model:
-            model_filename = f"{model_dir}/model_{group_by}_{n_percent}_{current_group}.pkl"
+            model_filename = f"{model_dir}/model_{group_by}_{current_group}.pkl"
             with open(model_filename, "wb") as file:
                 pickle.dump(model, file)
 
