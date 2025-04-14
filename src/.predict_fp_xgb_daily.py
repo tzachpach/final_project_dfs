@@ -84,7 +84,7 @@ def predict_fp_xgb(
     # We'll store results if multi-run
     all_runs = []
 
-    def run_single_combo(tw, p, xgb_params):
+    def run_single_combo(tw, xgb_params):
         """
         1) Filter df by percentile p (if not None)
         2) Use train_window=tw
@@ -94,13 +94,6 @@ def predict_fp_xgb(
         6) Return final DataFrame
         """
         local_df = df_filtered.copy()
-        if p is not None:
-            # percentile filter
-            thr_val = local_df['salary-fanduel'].quantile(p)
-            local_df = local_df[local_df['salary-fanduel'] >= thr_val]
-            if local_df.empty:
-                print(f"[WARN] percentile {p} => threshold {thr_val}, no data left. skipping.")
-                return None
 
         # Prepare features (exclude same_game_cols)
         features = local_df.columns.difference(same_game_cols).tolist()
