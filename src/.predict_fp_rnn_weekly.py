@@ -231,6 +231,7 @@ def rolling_train_test_rnn(
     batch_size,
     rnn_type,
     multi_target_mode,
+    quantile_label,
     group_by="week",
     predict_ahead=1,
     platform="fanduel",
@@ -276,28 +277,30 @@ def rolling_train_test_rnn(
         for cat in dfs_cats:  # Assuming dfs_cats is defined elsewhere
             cat_df = df.copy()
             cat_result = rolling_train_test_rnn(
-                cat_df,
-                train_window,
-                hidden_size,
-                num_layers,
-                learning_rate,
-                dropout_rate,
-                epochs,
-                batch_size,
-                rnn_type,
+                df=cat_df,
+
+                train_window=train_window,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                learning_rate=learning_rate,
+                dropout_rate=dropout_rate,
+                epochs=epochs,
+                batch_size=batch_size,
+                rnn_type=rnn_type,
                 multi_target_mode=False,
                 group_by=group_by,
                 predict_ahead=predict_ahead,
                 platform=cat,
                 step_size=step_size,
-                output_dir=output_dir
+                output_dir=output_dir,
+                quantile_label=quantile_label
             )
             cat_result = cat_result.rename(columns={
                 "y_true": f"{cat}",
                 "y_pred": f"{cat}_pred"
             })
             # Save category-specific results
-            cat_output_file = os.path.join(output_dir, f"{cat}.csv")
+            cat_output_file = os.path.join(output_dir, f"{cat}_{quantile_label}.csv")
             cat_result.to_csv(cat_output_file, index=False)
             print(f"Saved category results to {cat_output_file}")
             all_category_results.append(cat_result)
@@ -313,7 +316,7 @@ def rolling_train_test_rnn(
         combined_df['game_date'] = pd.to_datetime(combined_df['game_date'])
 
         # Save combined multi-target results
-        combined_output_file = os.path.join(output_dir, "fp_fanduel.csv")
+        combined_output_file = os.path.join(output_dir, f"fp_fanduel_{quantile_label}.csv")
         combined_df.to_csv(combined_output_file, index=False)
         print(f"Saved combined multi-target results to {combined_output_file}")
 
@@ -402,7 +405,7 @@ def rolling_train_test_rnn(
 
     # Save single-target results
     if not multi_target_mode:
-        output_file = os.path.join(output_dir, f"fp_{platform}.csv")
+        output_file = os.path.join(output_dir, f"fp_{platform}_{quantile_label}.csv")
         results_df.to_csv(output_file, index=False)
         print(f"Saved single-target results to {output_file}")
 
