@@ -246,8 +246,7 @@ def compute_shap_importances(
 def evaluate_results(
         prediction_df,
         lineup_df,
-        contests_df=pd.read_csv("../data/contests_data/fanduel_nba_contests.csv"),
-        categories=dfs_cats + ["fp_fanduel"],
+        contests_df,
         top_percentiles=[20, 10],
         salary_col="fanduel_salary",
         # model_pickle_path=None,
@@ -275,18 +274,17 @@ def evaluate_results(
     # We'll ensure the needed columns exist in prediction_df
     # Must have cat and cat+"_pred" for each cat, plus 'salary_col' for percentile logic
     # Then we do overall metrics
+    categories = [cat for cat in dfs_cats + ['fp_fandul'] if cat in prediction_df.columns]
     overall_stats = compute_overall_metrics(prediction_df, categories)
 
     # 1) Contest results
     lineup_metrics = evaluate_lineups_vs_contests(lineup_df, contests_df)
 
     # 2) Combine overall + lineup
-    combined_dict = {}
-    combined_dict.update(overall_stats)
-    combined_dict.update(lineup_metrics)
+    res_dict = {}
+    res_dict.update(overall_stats)
+    res_dict.update(lineup_metrics)
     # combined_dict["model_pickle"] = os.path.basename(model_pickle_path) if model_pickle_path else "None"
-
-    df_overall_results = pd.DataFrame([combined_dict])
 
     # 3) Build percentile data
     #    We'll also include p=100 to represent "all_pop"
@@ -304,4 +302,4 @@ def evaluate_results(
     # else:
     #     top_features_dict = {}
 
-    return df_overall_results, df_percentile_data#, top_features_dict
+    return res_dict, df_percentile_data#, top_features_dict
