@@ -1,4 +1,6 @@
 import pandas as pd
+import os
+from datetime import datetime
 
 from config.dfs_categories import same_game_cols, dfs_cats
 from config.fantasy_point_calculation import (
@@ -54,6 +56,11 @@ def predict_fp_xgb_q(
         pd.DataFrame: The vertically concatenated predictions for each bin. Each row belongs to
                       one bin in which that player's salary_quantile fell.
     """
+    # Create timestamped output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = f"output_csv/xgb_{timestamp}"
+    os.makedirs(output_dir, exist_ok=True)
+
     enriched_df = enriched_df.dropna(subset=['salary_quantile'])
     # Determine grouping + rolling window
     if mode not in ["daily", "weekly"]:
@@ -125,6 +132,12 @@ def predict_fp_xgb_q(
 
         # Optionally add a column indicating the bin label
         combined_df["_bin_label"] = bin_label
+
+        # Save bin-specific results
+        bin_output_file = os.path.join(output_dir, f"fp_xgb_bin_{bin_label}.csv")
+        combined_df.to_csv(bin_output_file, index=False)
+        print(f"Saved bin results to {bin_output_file}")
+
         return combined_df
 
     # For i in range(len(thresholds)):
@@ -157,4 +170,10 @@ def predict_fp_xgb_q(
         print("[WARN] All bins were empty. Returning empty.")
         return pd.DataFrame()
     final_df = pd.concat(final_bin_dfs, ignore_index=True)
+
+    # Save final combined results
+    final_output_file = os.path.join(output_dir, "final_fp_xgb.csv")
+    final_df.to_csv(final_output_file, index=False)
+    print(f"Saved final results to {final_output_file}")
+
     return final_df
