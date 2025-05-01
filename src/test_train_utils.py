@@ -42,7 +42,7 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
     all_fanduel_salaries, all_draftkings_salaries, all_yahoo_salaries = [], [], []
     all_fanduel_positions, all_draftkings_positions, all_yahoo_positions = [], [], []
 
-    cat_cols = ["team_abbreviation", "player_name", "opponent", "pos-draftkings", "pos-fanduel", "pos-yahoo", "season_year"]
+    cat_cols = ["team_abbreviation", "player_name", "opponent_abbr", "pos-draftkings", "pos-fanduel", "pos-yahoo", "season_year"]
 
     # Loop over groups with a rolling window
     for idx in range(train_window, len(unique_groups)):
