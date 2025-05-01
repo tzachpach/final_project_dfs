@@ -54,7 +54,7 @@ def enrich_pipeline(df):
     # Concatenate all enriched season DataFrames
     enriched_df = pd.concat(enriched_seasons, ignore_index=True)
 
-    enriched_df = add_anticipated_defense_features(enriched_df) # Add this line
+    enriched_df = add_anticipated_defense_features(enriched_df)
 
     enriched_df = enriched_df.sort_values(['game_date']).reset_index(drop=True)
     print("All seasons enriched successfully!")

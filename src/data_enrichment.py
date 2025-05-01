@@ -218,3 +218,184 @@ def add_running_season_stats(df):
             df.loc[group_idx, f'running_season_{stat}_exceptional_games'] = exceptional_games.fillna(0)
 
     return df
+
+
+def add_anticipated_defense_features(df):
+    """
+    Calculates and adds features related to the opponent's historical defensive performance
+    up to the date of each game.
+
+    Args:
+        df (pd.DataFrame): The DataFrame containing all preprocessed and enriched game logs,
+                           including 'game_date', 'team_abbreviation', 'opponent_abbr',
+                           and relevant statistical columns (like 'def_rating', 'pace',
+                           and individual player stats like 'pts', 'reb', etc., and 'fp_fanduel').
+                           Must have 'opponent_abbr' column created in preprocessing.
+
+    Returns:
+        pd.DataFrame: The DataFrame with new opponent defensive feature columns added.
+    """
+    # Ensure data is sorted correctly for time-series calculations
+    # Sorting by team and then date is efficient for calculating team-specific rolling/expanding stats
+    # Sort by the team whose stats we will calculate (which is opponent_abbr in the final merge)
+    # but we need to calculate stats FOR EACH TEAM first. So sort by team_abbreviation.
+    df = df.sort_values(['team_abbreviation', 'game_date']).reset_index(drop=True)
+
+    # --- 1. Calculate Team-Level Stats (to be used as Opponent Stats) ---
+    # These are metrics OF each team over time, which we will later merge as opponent stats.
+    print("Calculating team-level defensive/pace stats for opponent features...")
+    team_stats_for_opponent = df.copy() # Work on a copy
+
+    # Group by the team whose stats we are calculating
+    team_groups = team_stats_for_opponent.groupby('team_abbreviation')
+
+    # Calculate expanding (season-to-date) and rolling (last 10) averages for relevant stats
+    # Use min_periods=1 to include early season data
+    windows = [10] # Define rolling windows, e.g., [10, 5]
+    # Include relevant team-level stats that could describe their defensive/pace tendencies
+    stats_to_roll_team = ['def_rating', 'pace', 'off_rating'] # Added off_rating as it influences pace/game flow
+
+    # Define the names of the new columns being created for team stats
+    new_team_stat_cols = []
+    for stat in stats_to_roll_team:
+        new_team_stat_cols.append(f'{stat}_season_avg')
+        for window in windows:
+             new_team_stat_cols.append(f'{stat}_last{window}_avg')
+             # Consider adding std for team stats as well
+             new_team_stat_cols.append(f'{stat}_last{window}_std')
+
+
+    for stat in stats_to_roll_team:
+        if stat in team_stats_for_opponent.columns: # Ensure stat column exists
+            # Calculate season average and rolling average, shifted
+            team_stats_for_opponent[f'{stat}_season_avg'] = team_groups[stat].transform(lambda x: x.expanding().mean().shift(1))
+            for window in windows:
+                 # Shift(1) is CRITICAL here to exclude the current game's data from the calculation
+                team_stats_for_opponent[f'{stat}_last{window}_avg'] = team_groups[stat].transform(lambda x: x.rolling(window=window, min_periods=1).mean().shift(1))
+                team_stats_for_opponent[f'{stat}_last{window}_std'] = team_groups[stat].transform(lambda x: x.rolling(window=window, min_periods=1).std().shift(1))
+        else:
+            print(f"Warning: Team stat column '{stat}' not found for rolling calculation.")
+
+
+    # Select ONLY the newly calculated team stats and the columns needed for merging
+    # Use the list of specifically created new column names
+    team_stats_agg_for_merge = team_stats_for_opponent[[
+        'game_date', 'team_abbreviation'
+    ] + new_team_stat_cols].drop_duplicates(subset=['game_date', 'team_abbreviation']).copy() # Use copy to avoid SettingWithCopyWarning
+
+
+    # Now, merge these team stats back to the main df, matching team_abbreviation in team_stats_agg_for_merge
+    # with the opponent_abbr in the main df. Rename columns to reflect they are opponent stats.
+    rename_opponent_cols = {col: f'opp_{col}' for col in new_team_stat_cols}
+    team_stats_agg_for_merge.rename(columns=rename_opponent_cols, inplace=True)
+
+    df = pd.merge(
+        df,
+        team_stats_agg_for_merge.rename(columns={'team_abbreviation': 'opponent_abbr'}), # Rename team_abbreviation to match opponent_abbr for merge
+        on=['game_date', 'opponent_abbr'], # Use the correct merge key here
+        how='left'
+    )
+    print("Finished calculating opponent team-level defensive features.")
+
+    # --- 2. Calculate Opponent Defense vs. Position (DvP) Stats (Efficient) ---
+    # These are metrics on how many points/rebounds/etc. an opponent allows BY POSITION FACED.
+    # This is calculated by looking at the stats of players on the *opposing* team in past games
+    # and aggregating them by the defending team and the position of the player they faced.
+    print("Calculating opponent Defense vs. Position (DvP) features...")
+
+    # Ensure opponent_abbr is available and pos-fanduel is cleaned
+    # df should already have 'opponent_abbr' and 'pos-fanduel' by this stage
+    df['pos-fanduel'] = df['pos-fanduel'].fillna('Unknown') # Ensure no NaNs in position
+
+    # Aggregate raw allowed stats per game, by defending team and position faced.
+    # Group the main dataframe by the team that was defending (opponent_abbr),
+    # the position they were defending (pos-fanduel of the players on the other team),
+    # and the game date.
+    # Sum the stats of the players on the *offensive* team for each group.
+
+    # Select the columns needed for aggregation to improve performance
+    dvp_agg_cols = ['game_date', 'opponent_abbr', 'pos-fanduel'] + dfs_cats + ['fp_fanduel', 'def_rating', 'off_rating', 'pace'] # Include relevant stats to sum
+    # Ensure all columns exist before selecting
+    dvp_agg_cols = [col for col in dvp_agg_cols if col in df.columns]
+
+
+    dvp_game_totals = df.groupby(['game_date', 'opponent_abbr', 'pos-fanduel'])[
+        [col for col in dvp_agg_cols if col not in ['game_date', 'opponent_abbr', 'pos-fanduel']] # Select only stat columns for sum
+    ].sum().reset_index()
+
+    # Rename columns to indicate they are stats *allowed* in that game
+    # Only rename the stat columns that were summed
+    stats_summed = [col for col in dvp_agg_cols if col not in ['game_date', 'opponent_abbr', 'pos-fanduel']]
+    rename_allowed_cols = {
+        cat: f'{cat}_allowed_in_game' for cat in stats_summed
+    }
+    dvp_game_totals.rename(columns=rename_allowed_cols, inplace=True)
+
+    # Now, calculate rolling/expanding averages on these game totals for DvP.
+    # Group by the defending team ('opponent_abbr') and the position faced ('pos-fanduel').
+    dvp_game_totals = dvp_game_totals.sort_values(['opponent_abbr', 'pos-fanduel', 'game_date']).reset_index(drop=True)
+    dvp_groups_agg = dvp_game_totals.groupby(['opponent_abbr', 'pos-fanduel'])
+
+    windows_dvp = [10] # Rolling window for DvP (games faced at this position vs this opponent)
+    # Use the renamed columns as the base for rolling/expanding
+    stats_to_roll_dvp = [col for col in dvp_game_totals.columns if '_allowed_in_game' in col]
+
+    # Define the names of the new DvP columns being created
+    new_dvp_cols = []
+    for stat_allowed in stats_to_roll_dvp:
+        base_stat_name = stat_allowed.replace('_allowed_in_game', '')
+        new_dvp_cols.append(f'opp_dvp_{base_stat_name}_season_avg')
+        for window in windows_dvp:
+            new_dvp_cols.append(f'opp_dvp_{base_stat_name}_last{window}_avg')
+            # new_dvp_cols.append(f'opp_dvp_{base_stat_name}_last{window}_std') # Include std
+
+    for stat_allowed in stats_to_roll_dvp:
+        # Calculate expanding (season-to-date) average, shifted
+        base_stat_name = stat_allowed.replace('_allowed_in_game', '')
+        dvp_game_totals[f'opp_dvp_{base_stat_name}_season_avg'] = dvp_groups_agg[stat_allowed].transform(lambda x: x.expanding().mean().shift(1))
+
+        # Calculate rolling averages and stds, shifted
+        for window in windows_dvp:
+            dvp_game_totals[f'opp_dvp_{base_stat_name}_last{window}_avg'] = dvp_groups_agg[stat_allowed].transform(lambda x: x.rolling(window=window, min_periods=1).mean().shift(1))
+            # dvp_game_totals[f'opp_dvp_{base_stat_name}_last{window}_std'] = dvp_groups_agg[stat_allowed].transform(lambda x: x.rolling(window=window, min_periods=1).std().shift(1))
+
+
+    # Select the calculated DvP features and merge keys
+    # Use the list of specifically created new DvP column names
+    dvp_merge_cols = ['game_date', 'opponent_abbr', 'pos-fanduel'] + new_dvp_cols
+    # Ensure selected columns exist in dvp_game_totals before selecting
+    dvp_merge_cols = [col for col in dvp_merge_cols if col in dvp_game_totals.columns]
+    dvp_for_merge = dvp_game_totals[dvp_merge_cols].copy() # Use copy
+
+
+    # Merge DvP stats back to the main df using the correct keys
+    # This joins the calculated DvP for opponent O against position P on date D
+    # to the main rows where a player with position P faced opponent O on date D.
+    df = pd.merge(
+        df,
+        dvp_for_merge,
+        on=['game_date', 'opponent_abbr', 'pos-fanduel'],
+        how='left'
+    )
+
+    print("Finished calculating opponent Defense vs. Position (DvP) features.")
+
+
+    # --- 3. Handle Missing Values for New Features ---
+    # Players/teams/DvP groups might not have enough past data for rolling/expanding calculations.
+    # Decide on a strategy: fill with 0, fill with league average, or use a specific indicator value.
+    # Filling with 0 is a simple starting point but might not be ideal. League average is better.
+    # Identify all columns that were newly created in this function
+    all_new_feature_cols = list(team_stats_agg_for_merge.columns) + new_dvp_cols
+
+    for col in all_new_feature_cols:
+        if col in df.columns: # Check if the column was successfully added during merges
+            # Consider filling with league average up to that date, or a specific indicator
+            # For now, sticking with fillna(0) as per previous code, but note this is basic.
+            df[col] = df[col].fillna(0)
+        else:
+             print(f"Warning: New feature column '{col}' not found in final DataFrame after merges.")
+
+
+    return df
+
