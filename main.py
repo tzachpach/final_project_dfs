@@ -5,13 +5,11 @@ import pandas as pd
 
 from config.constants import best_params
 from config.model_configs import model_configs
-from src.data_enrichment import add_last_season_data_with_extras, add_time_dependent_features_v2, \
+from src.data_enrichment import add_anticipated_defense_features, add_last_season_data_with_extras, add_time_dependent_features_v2, \
     add_running_season_stats
 from src.evaluate_results import evaluate_results
 from src.lineup_genetic_optimizer import get_lineup
 from src.predict_fp_rnn_q import predict_fp_rnn_q
-# from src.predict_fp_rnn_weekly import *
-# from src.predict_fp_xgb_daily import predict_fp_xgb
 from src.predict_fp_xgb_q import predict_fp_xgb_q
 from src.preprocessing import merge_all_seasons, preprocess_all_seasons_data
 
@@ -55,6 +53,9 @@ def enrich_pipeline(df):
 
     # Concatenate all enriched season DataFrames
     enriched_df = pd.concat(enriched_seasons, ignore_index=True)
+
+    enriched_df = add_anticipated_defense_features(enriched_df) # Add this line
+
     enriched_df = enriched_df.sort_values(['game_date']).reset_index(drop=True)
     print("All seasons enriched successfully!")
 
