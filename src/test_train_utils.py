@@ -6,7 +6,7 @@ import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
 
 
-def rolling_train_test(X, y, df, group_by="date", train_window=10, save_model=False, model_dir="models"):
+def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_model=False, model_dir="models"):
     """
     Rolling train-test function for both daily and weekly training, based on a grouping parameter.
 
