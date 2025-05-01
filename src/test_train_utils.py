@@ -6,7 +6,10 @@ import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
 
 
-def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_model=False, model_dir="models"):
+def rolling_train_test_for_xgb(X, y, df,
+                               group_by="date", train_window=10,
+                               save_model=False, model_dir="models",
+                               xgb_param_dict=None):
     """
     Rolling train-test function for both daily and weekly training, based on a grouping parameter.
 
@@ -81,12 +84,26 @@ def rolling_train_test_for_xgb(X, y, df, group_by="date", train_window=10, save_
 
         # Model parameters
         params = {
-            "tree_method": "hist", # Use "gpu_hist" if you have a GPU
+            "objective": "reg:squarederror",
+            "tree_method": "hist",  # use "gpu_hist" on a GPU box
             "enable_categorical": True,
         }
 
+        # --- user overrides ---
+        if xgb_param_dict:  # None or {}
+            # all keys except those that belong to the booster loop length
+            non_round_keys = {k: v for k, v in xgb_param_dict.items()
+                              if k not in ("num_boost_round", "n_estimators")}
+            params.update(non_round_keys)
+
+        num_rounds = (
+                xgb_param_dict.get("num_boost_round")
+                or xgb_param_dict.get("n_estimators")
+                or 100  # ← previous implicit default
+        )
+
         # Train the model
-        model = xgb.train(params, dtrain)
+        model = xgb.train(params, dtrain, num_boost_round=num_rounds)
 
         # Make predictions
         y_pred = model.predict(dtest)

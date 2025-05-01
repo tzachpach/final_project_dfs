@@ -102,7 +102,8 @@ def predict_fp_xgb_q(
                 group_by=group_col,
                 train_window=rolling_window,
                 save_model=save_model,
-                model_dir="models"  # or wherever
+                model_dir="models",
+                xgb_param_dict = xgb_param_dict,
             )
             cat_results.rename(columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True)
 
