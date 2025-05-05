@@ -1,0 +1,27 @@
+[project]
+name = "final_project_dfs"
+version = "0.1.0"
+description = "NBA Daily Fantasy Sports prediction & lineup engine"
+authors = [{ name = "Tzach Larboni", email = "tlarboni@gmail.com" }]
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scikit-learn>=1.5",
+    "xgboost>=2.0",
+    "lightgbm>=4.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "black>=24.0",
+    "ruff>=0.4",
+    "pre-commit>=3.6",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
