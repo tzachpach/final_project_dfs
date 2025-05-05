@@ -274,7 +274,7 @@ def evaluate_results(
     # We'll ensure the needed columns exist in prediction_df
     # Must have cat and cat+"_pred" for each cat, plus 'salary_col' for percentile logic
     # Then we do overall metrics
-    categories = [cat for cat in dfs_cats + ['fp_fandul'] if cat in prediction_df.columns]
+    categories = [cat for cat in dfs_cats + ['fp_fanduel'] if cat in prediction_df.columns]
     overall_stats = compute_overall_metrics(prediction_df, categories)
 
     # 1) Contest results

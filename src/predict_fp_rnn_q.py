@@ -152,10 +152,7 @@ def predict_fp_rnn_q(
 
         # Save bin-specific results
         if not multi_target_mode:
-            bin_output_file = os.path.join(output_dir, f"fp_{platform}_bin_{bin_label}.csv")
-            merged_df.to_csv(bin_output_file, index=False)
-            print(f"Saved bin results to {bin_output_file}")
-
+            return results_df
         return merged_df
 
     # We must have a 'salary_quantile' column

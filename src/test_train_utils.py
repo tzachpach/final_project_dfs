@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 
 def rolling_train_test_for_xgb(X, y, df,

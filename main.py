@@ -169,7 +169,7 @@ def main():
                 # Build a sub-config with single, chosen values
                 sub_cfg = {
                     "model_type": "XGBoost",
-                    "thresholds": thresholds_val,
+                    "salary_thresholds": thresholds_val,
                     "mode": mode_val,
                     "train_window_days": tw_days_val,
                     "train_window_weeks": tw_weeks_val,
