@@ -2,7 +2,7 @@ import pandas as pd
 import os
 from datetime import datetime
 
-from src.predict_fp_rnn_weekly import rolling_train_test_rnn
+from src.test_train_utils import rolling_train_test_rnn
 
 
 def predict_fp_rnn_q(
