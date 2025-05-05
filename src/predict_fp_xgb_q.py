@@ -103,8 +103,11 @@ def predict_fp_xgb_q(
                 train_window=rolling_window,
                 save_model=save_model,
                 model_dir="models",
-                xgb_param_dict = xgb_param_dict,
+                xgb_param_dict=xgb_param_dict,
+                output_dir = output_dir,
+                quantile_label = bin_label
             )
+
             cat_results.rename(columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True)
 
             if combined_df.empty:
@@ -134,10 +137,8 @@ def predict_fp_xgb_q(
         # Optionally add a column indicating the bin label
         combined_df["_bin_label"] = bin_label
 
-        # Save bin-specific results
-        bin_output_file = os.path.join(output_dir, f"fp_xgb_bin_{bin_label}.csv")
-        combined_df.to_csv(bin_output_file, index=False)
-        print(f"Saved bin results to {bin_output_file}")
+        final_output_file = os.path.join(output_dir, "final_fp_xgb.csv")
+        final_df.to_csv(final_output_file, index=False)
 
         return combined_df
 

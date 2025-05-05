@@ -10,7 +10,9 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 def rolling_train_test_for_xgb(X, y, df,
                                group_by="date", train_window=10,
                                save_model=False, model_dir="models",
-                               xgb_param_dict=None):
+                               xgb_param_dict=None,
+                               output_dir=None,
+                               quantile_label=None):
     """
     Rolling train-test function for both daily and weekly training, based on a grouping parameter.
 
@@ -155,6 +157,10 @@ def rolling_train_test_for_xgb(X, y, df,
         "draftkings_position": all_draftkings_positions,
         "yahoo_position": all_yahoo_positions,
     })
+    if output_dir and quantile_label:
+        fname = f"fp_xgb_{quantile_label}.csv"
+        results_df.to_csv(os.path.join(output_dir, fname), index=False)
+        print(f"Saved XGB intermediate results → {fname}")
 
     return results_df
 
