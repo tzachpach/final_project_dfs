@@ -23,7 +23,9 @@ def add_time_dependent_features_v2(df, rolling_window):
         features = pd.DataFrame(index=group.index)
 
         # Rolling mean and std
-        rolling = group[same_game_cols].rolling(window=rolling_window, min_periods=1)
+        rolling = (
+            group[same_game_cols].shift(1).rolling(window=rolling_window, min_periods=1)
+        )
         rolling_mean = rolling.mean()
         rolling_std = rolling.std()
 
