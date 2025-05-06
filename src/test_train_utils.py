@@ -196,6 +196,24 @@ def rolling_train_test_for_xgb(
     return results_df
 
 
+def make_unique_player_key(df: pd.DataFrame) -> pd.Series:
+    """
+    Robust surrogate key: name_team_season[_n].
+    """
+    base = (
+        df["player_name"].astype(str).str.replace(" ", "_")
+        + "_"
+        + df["team_abbreviation"].astype(str)
+        + "_"
+        + df["season_year"].str[:4]  # "2023-24" -> "2023"
+    )
+
+    dup_idx = df.groupby(base).cumcount()  # 0,1,2,...
+    # Only append suffix where duplicates exist (dup_idx > 0)
+    key = np.where(dup_idx == 0, base, base + "_" + dup_idx.astype(str))
+    return pd.Series(key, index=df.index, name="player_key")
+
+
 def prepare_train_test_rnn_data(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
@@ -212,9 +230,16 @@ def prepare_train_test_rnn_data(
     Returns:
         X_train, y_train, X_test, y_test, players_test, dates_test, scalers
     """
+
+    # ---------- 0 | create an ad‑hoc unique key ----------
+    #  (concat name + current team; good enough to split 99 % of name clashes)
+    for df in (train_df, test_df):
+        df["player_key"] = make_unique_player_key(df)
+
+    key_col = "player_key"
     #################### 1) Sort & Basic Checks ####################
-    train_df = train_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
-    test_df = test_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
+    train_df = train_df.sort_values([key_col, "game_date"]).reset_index(drop=True)
+    test_df = test_df.sort_values([key_col, "game_date"]).reset_index(drop=True)
 
     target_col = f"fp_{target_platform}"
     if target_col not in train_df.columns or target_col not in test_df.columns:
@@ -222,6 +247,7 @@ def prepare_train_test_rnn_data(
 
     exclude = {
         "player_name",
+        key_col,
         "game_id",
         "game_date",
         "available_flag",
@@ -239,103 +265,67 @@ def prepare_train_test_rnn_data(
 
     #################### 2) One-hot encode ####################
     train_df = pd.get_dummies(train_df, columns=cat_cols, drop_first=True)
+    train_cols = train_df.columns  # freeze final train design matrix
+
     test_df = pd.get_dummies(test_df, columns=cat_cols, drop_first=True)
+    test_df = test_df.reindex(columns=train_cols, fill_value=0)  # align
 
-    # Ensure same columns in both
-    all_cols = sorted(set(train_df.columns).union(test_df.columns))
-    train_df = train_df.reindex(columns=all_cols, fill_value=0)
-    test_df = test_df.reindex(columns=all_cols, fill_value=0)
+    feature_cols = [c for c in train_cols if c not in exclude]
 
-    feature_cols = [c for c in train_df.columns if c not in exclude]
+    # make sure numeric dtypes are float32 early (faster later)
+    train_df[feature_cols] = train_df[feature_cols].astype(np.float32)
+    test_df[feature_cols] = test_df[feature_cols].astype(np.float32)
 
     #################### 3) Fit Per-Player Scalers on Train ####################
     # We'll store a dict of scalers keyed by player_name
-    # e.g. scalers[player_name] = {"X": <scaler>, "y": <scaler>}
+    scaler_cls = StandardScaler if use_standard_scaler else MinMaxScaler
     scalers = {}
 
-    # We'll first do a pass to fit scalers for each player on the training data.
-    for player, grp in train_df.groupby("player_name"):
-        # convert to numeric
-        feat_arr = (
-            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        )
-        targ_arr = (
-            grp[target_col]
-            .apply(pd.to_numeric, errors="coerce")
-            .fillna(0)
-            .values.reshape(-1, 1)
-        )
-
-        # define scalers
-        X_scaler = StandardScaler() if use_standard_scaler else MinMaxScaler()
-        y_scaler = StandardScaler() if use_standard_scaler else MinMaxScaler()
-
-        # fit on the player's train features/target
-        X_scaler.fit(feat_arr)  # shape: (num_rows, num_features)
-        y_scaler.fit(targ_arr)  # shape: (num_rows, 1)
-
+    for player, grp in train_df.groupby(key_col):
+        X_scaler = scaler_cls()
+        y_scaler = scaler_cls()
+        X_scaler.fit(grp[feature_cols].values)
+        y_scaler.fit(grp[[target_col]].values)
         scalers[player] = {"X": X_scaler, "y": y_scaler}
 
     #################### 4) Build Train Sequences (scaled) ####################
-    X_train_list, y_train_list = [], []
-    for player, grp in train_df.groupby("player_name"):
-        feat_arr = (
-            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        )
-        targ_arr = (
-            grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        )
-
-        # If no scaler for this player, skip
+    X_tr, y_tr = [], []
+    for player, grp in train_df.groupby(key_col):
         if player not in scalers:
             continue
-        # apply scaling
-        feat_scaled = scalers[player]["X"].transform(
-            feat_arr
-        )  # shape: (rows, features)
-        targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1, 1)).flatten()
+        feat_scaled = scalers[player]["X"].transform(grp[feature_cols].values)
+        targ_scaled = scalers[player]["y"].transform(grp[[target_col]].values).flatten()
 
         for i in range(lookback, len(grp) - predict_ahead + 1):
-            X_seq = feat_scaled[i - lookback : i]  # shape: (lookback, features)
-            y_val = targ_scaled[i + predict_ahead - 1]  # single float
-            X_train_list.append(X_seq)
-            y_train_list.append(y_val)
+            X_tr.append(feat_scaled[i - lookback : i])
+            y_tr.append(targ_scaled[i + predict_ahead - 1])
 
-    X_train = np.array(X_train_list, dtype=np.float32)
-    y_train = np.array(y_train_list, dtype=np.float32)
+    X_train = np.asarray(X_tr, dtype=np.float32)
+    y_train = np.asarray(y_tr, dtype=np.float32)
 
     #################### 5) Build Test Sequences (scaled) ####################
-    X_test_list, y_test_list = [], []
-    players_test, dates_test = [], []
+    X_te, y_te, players_test, dates_test = [], [], [], []
 
-    for player, grp in test_df.groupby("player_name"):
-        feat_arr = (
-            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        )
-        targ_arr = (
-            grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        )
+    for player, grp in test_df.groupby(key_col):
+        if player not in scalers:
+            continue
+        feat_scaled = scalers[player]["X"].transform(grp[feature_cols].values)
+        targ_scaled = scalers[player]["y"].transform(grp[[target_col]].values).flatten()
         date_arr = grp["game_date"].values
 
-        if player not in scalers:
-            # Means the player wasn't in train
-            continue
-
-        # scale with the same scaler from train
-        feat_scaled = scalers[player]["X"].transform(feat_arr)
-        targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1, 1)).flatten()
-
         for i in range(lookback, len(grp) - predict_ahead + 1):
-            X_seq = feat_scaled[i - lookback : i]
-            y_val = targ_scaled[i + predict_ahead - 1]
-
-            X_test_list.append(X_seq)
-            y_test_list.append(y_val)
+            X_te.append(feat_scaled[i - lookback : i])
+            y_te.append(targ_scaled[i + predict_ahead - 1])
             players_test.append(player)
             dates_test.append(date_arr[i + predict_ahead - 1])
 
-    X_test = np.array(X_test_list, dtype=np.float32)
-    y_test = np.array(y_test_list, dtype=np.float32)
+    X_test = np.asarray(X_te, dtype=np.float32)
+    y_test = np.asarray(y_te, dtype=np.float32)
+
+    #################### testing ####################
+    assert X_train.shape[0] == y_train.shape[0]  # sequence/label parity
+    assert set(players_test).issubset(test_df.player_name)  # readable names
+    assert all(k in scalers for k in train_df.player_key.unique())  # scalers built
 
     return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
 

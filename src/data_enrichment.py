@@ -174,7 +174,26 @@ def add_last_season_data_with_extras(current_df, prev_df):
             stat_mapping = agg_data.set_index("player_name")[col]
             current_df[col] = current_df["player_name"].map(stat_mapping).fillna(0)
 
+    current_df = add_last_season_zscores(current_df)
     return current_df
+
+
+def add_last_season_zscores(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Deals with the issue of identity leakage that flattens the learning problem.
+    When last‑season stats are repeated verbatim across all rows, the trees discover trivial rules
+    That adds illusory accuracy yet zero actionable edge (DFS salaries already price LeBron).
+    A z‑score by position strips the identity but keeps the skill prior.
+    """
+    stat_cols = [c for c in df.columns if c.startswith("last_season_avg_")]
+
+    for pos in df["fanduel_position"].unique():
+        mask = df["fanduel_position"] == pos
+        sub = df.loc[mask, stat_cols]
+        mu, sigma = sub.mean(), sub.std(ddof=0).replace(0, 1)
+        df.loc[mask, [f"{c}_z" for c in stat_cols]] = (sub - mu) / sigma
+    df = df.drop(stat_cols, axis=1)
+    return df
 
 
 def add_running_season_stats(df):
