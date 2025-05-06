@@ -9,15 +9,15 @@ Original file is located at
 
 import pandas as pd
 import os
-import glob # Use glob for easier pattern matching of files
+import glob  # Use glob for easier pattern matching of files
 
 # --- User Configuration ---
 # IMPORTANT: Replace this with the actual path to the folder containing your 163 CSV files
-csv_directory = r'/Users/admin/Library/Mobile Documents/com~apple~CloudDocs/IDC MLDS MSc 2021/GPT_AI_Research/DFS/final_project_dfs/data/contests_data/dfs_contests_2021-22'
+csv_directory = r"/Users/admin/Library/Mobile Documents/com~apple~CloudDocs/IDC MLDS MSc 2021/GPT_AI_Research/DFS/final_project_dfs/data/contests_data/dfs_contests_2021-22"
 
 # Define the names for your output files
-merged_output_file = 'dfs_contests_2021_22_merged.csv'
-filtered_output_file = 'dfs_contests_2021_22_fanduel_filtered.csv'
+merged_output_file = "dfs_contests_2021_22_merged.csv"
+filtered_output_file = "dfs_contests_2021_22_fanduel_filtered.csv"
 # --- End User Configuration ---
 
 # --- Task 1: Merge all CSV files ---
@@ -28,7 +28,7 @@ if not os.path.isdir(csv_directory):
     print("Please update the 'csv_directory' variable with the correct path.")
 else:
     # Construct the pattern to find all CSV files in the directory
-    all_csv_files_pattern = os.path.join(csv_directory, '*.csv')
+    all_csv_files_pattern = os.path.join(csv_directory, "*.csv")
 
     # Get a list of all file paths that match the pattern
     all_csv_files = glob.glob(all_csv_files_pattern)
@@ -46,12 +46,14 @@ else:
             try:
                 df = pd.read_csv(f)
                 df_list.append(df)
-                #print(f"  Read: {os.path.basename(f)}")
+                # print(f"  Read: {os.path.basename(f)}")
             except Exception as e:
-                print(f"  Error reading {os.path.basename(f)}: {e}. Skipping this file.")
+                print(
+                    f"  Error reading {os.path.basename(f)}: {e}. Skipping this file."
+                )
 
         if not df_list:
-             print("No dataframes were successfully read. Exiting.")
+            print("No dataframes were successfully read. Exiting.")
         else:
             # Concatenate all DataFrames in the list vertically
             # ignore_index=True creates a new continuous index for the merged DataFrame
@@ -70,19 +72,23 @@ else:
 
                 # Apply filters
                 # 1. Filter for 'site'
-                site_filter = merged_df['site'].isin(['fanduel', 'fanduel_single', 'fanduel_super'])
+                site_filter = merged_df["site"].isin(
+                    ["fanduel", "fanduel_single", "fanduel_super"]
+                )
 
                 # 2. Filter for 'Title'
-                title_filter = merged_df['Title'].isin(['Main', 'NBA - Main'])
+                title_filter = merged_df["Title"].isin(["Main", "NBA - Main"])
 
                 # 3. Filter for 'total_entrants'
-                entrants_filter = merged_df['total_entrants'] >= 20
+                entrants_filter = merged_df["total_entrants"] >= 20
 
                 # 4. Filter for 'cost'
-                cost_filter = merged_df['cost'] >= 1
+                cost_filter = merged_df["cost"] >= 1
 
                 # Combine all filters using the logical AND (&) operator
-                combined_filter = site_filter & title_filter & entrants_filter & cost_filter
+                combined_filter = (
+                    site_filter & title_filter & entrants_filter & cost_filter
+                )
 
                 # Create the filtered DataFrame
                 filtered_df = merged_df[combined_filter]

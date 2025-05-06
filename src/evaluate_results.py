@@ -12,8 +12,10 @@ from sklearn.metrics import root_mean_squared_error, mean_absolute_error
 # Helpers
 ###############################################################################
 
+
 def bias(y_true, y_pred):
     return float(np.mean(y_pred - y_true))
+
 
 def compute_overall_metrics(df, categories):
     """
@@ -24,31 +26,33 @@ def compute_overall_metrics(df, categories):
     results = {}
     for cat in categories:
         col_actual = cat
-        col_pred   = cat + "_pred"
+        col_pred = cat + "_pred"
 
         # skip if columns missing
         if col_actual not in df.columns or col_pred not in df.columns:
             results[f"{cat}_RMSE"] = np.nan
-            results[f"{cat}_MAE"]  = np.nan
+            results[f"{cat}_MAE"] = np.nan
             results[f"{cat}_Bias"] = np.nan
             continue
 
         sub = df.dropna(subset=[col_actual, col_pred])
         if sub.empty:
             results[f"{cat}_RMSE"] = np.nan
-            results[f"{cat}_MAE"]  = np.nan
+            results[f"{cat}_MAE"] = np.nan
             results[f"{cat}_Bias"] = np.nan
         else:
             y_true = sub[col_actual].values
             y_pred = sub[col_pred].values
             results[f"{cat}_RMSE"] = root_mean_squared_error(y_true, y_pred)
-            results[f"{cat}_MAE"]  = mean_absolute_error(y_true, y_pred)
+            results[f"{cat}_MAE"] = mean_absolute_error(y_true, y_pred)
             results[f"{cat}_Bias"] = bias(y_true, y_pred)
 
     return results
 
 
-def compute_percentile_metrics(df, categories, percentiles, salary_col="fanduel_salary"):
+def compute_percentile_metrics(
+    df, categories, percentiles, salary_col="fanduel_salary"
+):
     """
     For each p in percentiles (like [10, 20]), we look at top p% salary,
     plus 'all_pop'.
@@ -58,7 +62,7 @@ def compute_percentile_metrics(df, categories, percentiles, salary_col="fanduel_
     # Ensure we have the needed columns
     needed_cols = []
     for cat in categories:
-        needed_cols += [cat, cat+"_pred"]
+        needed_cols += [cat, cat + "_pred"]
     needed_cols.append(salary_col)
     df = df.dropna(subset=needed_cols)
 
@@ -79,7 +83,7 @@ def compute_percentile_metrics(df, categories, percentiles, salary_col="fanduel_
             # fill with NaNs
             for cat in categories:
                 row[f"{cat}_RMSE"] = np.nan
-                row[f"{cat}_MAE"]  = np.nan
+                row[f"{cat}_MAE"] = np.nan
                 row[f"{cat}_Bias"] = np.nan
             results.append(row)
             continue
@@ -87,18 +91,18 @@ def compute_percentile_metrics(df, categories, percentiles, salary_col="fanduel_
         # compute metrics
         for cat in categories:
             col_actual = cat
-            col_pred   = cat + "_pred"
+            col_pred = cat + "_pred"
 
             tmp = subset.dropna(subset=[col_actual, col_pred])
             if tmp.empty:
                 row[f"{cat}_RMSE"] = np.nan
-                row[f"{cat}_MAE"]  = np.nan
+                row[f"{cat}_MAE"] = np.nan
                 row[f"{cat}_Bias"] = np.nan
             else:
                 y_true = tmp[col_actual].values
                 y_pred = tmp[col_pred].values
                 row[f"{cat}_RMSE"] = root_mean_squared_error(y_true, y_pred)
-                row[f"{cat}_MAE"]  = mean_absolute_error(y_true, y_pred)
+                row[f"{cat}_MAE"] = mean_absolute_error(y_true, y_pred)
                 row[f"{cat}_Bias"] = bias(y_true, y_pred)
 
         results.append(row)
@@ -116,14 +120,14 @@ def evaluate_lineups_vs_contests(lineup_df, contests_df):
     Returns a dict with these summary metrics.
     """
     # We rename columns if needed
-    contests_df = contests_df.rename(columns={"period":"game_date"}).copy()
-    lineup_df   = lineup_df.rename(columns={"date":"game_date"}).copy()
+    contests_df = contests_df.rename(columns={"period": "game_date"}).copy()
+    lineup_df = lineup_df.rename(columns={"date": "game_date"}).copy()
 
     # basic filtering
-    valid_titles = ["Main","After Hours","Express"]
+    valid_titles = ["Main", "After Hours", "Express"]
     cdf = contests_df[contests_df["Title"].isin(valid_titles)]
-    cdf = cdf[cdf["total_entrants"]>50]
-    cdf = cdf[cdf["cost"]>=1]
+    cdf = cdf[cdf["total_entrants"] > 50]
+    cdf = cdf[cdf["cost"] >= 1]
 
     # ensure datetime
     cdf["game_date"] = pd.to_datetime(cdf["game_date"])
@@ -136,24 +140,38 @@ def evaluate_lineups_vs_contests(lineup_df, contests_df):
     before_len = len(merged)
     # drop duplicates
     merged = merged[
-        (merged["fanduel_GT_duplicates"]==0) &
-        (merged["fanduel_predicted_duplicates"]==0)
+        (merged["fanduel_GT_duplicates"] == 0)
+        & (merged["fanduel_predicted_duplicates"] == 0)
     ]
     dropped = before_len - len(merged)
 
     # compute differences
-    merged["winning_score_vs_pred"] = merged["winning_score"] - merged["fanduel_predicted_lineup_GT_points"]
-    merged["winning_score_vs_gt"]   = merged["winning_score"] - merged["fanduel_GT_points"]
+    merged["winning_score_vs_pred"] = (
+        merged["winning_score"] - merged["fanduel_predicted_lineup_GT_points"]
+    )
+    merged["winning_score_vs_gt"] = (
+        merged["winning_score"] - merged["fanduel_GT_points"]
+    )
 
-    merged["cash_line_vs_pred"] = merged["mincash_score"] - merged["fanduel_predicted_lineup_GT_points"]
-    merged["cash_line_vs_gt"]   = merged["mincash_score"] - merged["fanduel_GT_points"]
+    merged["cash_line_vs_pred"] = (
+        merged["mincash_score"] - merged["fanduel_predicted_lineup_GT_points"]
+    )
+    merged["cash_line_vs_gt"] = merged["mincash_score"] - merged["fanduel_GT_points"]
 
     # booleans
-    merged["pred_lineup_would_win"]  = merged["fanduel_predicted_lineup_GT_points"] >= merged["winning_score"]
-    merged["actual_lineup_would_win"]= merged["fanduel_GT_points"] >= merged["winning_score"]
+    merged["pred_lineup_would_win"] = (
+        merged["fanduel_predicted_lineup_GT_points"] >= merged["winning_score"]
+    )
+    merged["actual_lineup_would_win"] = (
+        merged["fanduel_GT_points"] >= merged["winning_score"]
+    )
 
-    merged["pred_lineup_would_cash"] = merged["fanduel_predicted_lineup_GT_points"] >= merged["mincash_score"]
-    merged["actual_lineup_would_cash"]= merged["fanduel_GT_points"] >= merged["mincash_score"]
+    merged["pred_lineup_would_cash"] = (
+        merged["fanduel_predicted_lineup_GT_points"] >= merged["mincash_score"]
+    )
+    merged["actual_lineup_would_cash"] = (
+        merged["fanduel_GT_points"] >= merged["mincash_score"]
+    )
 
     def compute_profit(row):
         if row["pred_lineup_would_win"]:
@@ -166,10 +184,14 @@ def evaluate_lineups_vs_contests(lineup_df, contests_df):
     merged["pred_lineup_profit"] = merged.apply(compute_profit, axis=1)
 
     num_contests = len(merged)
-    pred_win_rate  = merged["pred_lineup_would_win"].mean()  if num_contests>0 else np.nan
-    pred_cash_rate = merged["pred_lineup_would_cash"].mean() if num_contests>0 else np.nan
-    total_profit   = merged["pred_lineup_profit"].sum()      if num_contests>0 else 0.0
-    avg_profit     = merged["pred_lineup_profit"].mean()     if num_contests>0 else np.nan
+    pred_win_rate = (
+        merged["pred_lineup_would_win"].mean() if num_contests > 0 else np.nan
+    )
+    pred_cash_rate = (
+        merged["pred_lineup_would_cash"].mean() if num_contests > 0 else np.nan
+    )
+    total_profit = merged["pred_lineup_profit"].sum() if num_contests > 0 else 0.0
+    avg_profit = merged["pred_lineup_profit"].mean() if num_contests > 0 else np.nan
 
     return {
         "num_contests": num_contests,
@@ -177,15 +199,11 @@ def evaluate_lineups_vs_contests(lineup_df, contests_df):
         "pred_win_rate": pred_win_rate,
         "pred_cash_rate": pred_cash_rate,
         "total_profit": total_profit,
-        "avg_profit": avg_profit
+        "avg_profit": avg_profit,
     }
 
 
-def compute_shap_importances(
-    model_pickle_path,
-    df_sample,
-    n_top=10
-):
+def compute_shap_importances(model_pickle_path, df_sample, n_top=10):
     """
     Loads a pickled XGBoost model, runs SHAP on df_sample, returns
     a dict of the top N features -> mean(|SHAP|).
@@ -235,7 +253,7 @@ def compute_shap_importances(
     # pick top n
     top_pairs = feat_shap_pairs[:n_top]
     # build dict { feature_name: shap_value }
-    top_dict = {k: float(v) for (k,v) in top_pairs}
+    top_dict = {k: float(v) for (k, v) in top_pairs}
 
     return top_dict
 
@@ -244,14 +262,14 @@ def compute_shap_importances(
 # Main user-facing function
 ###############################################################################
 def evaluate_results(
-        prediction_df,
-        lineup_df,
-        contests_df,
-        top_percentiles=[20, 10],
-        salary_col="fanduel_salary",
-        # model_pickle_path=None,
-        # shap_data=None,
-        # shap_top_n=10
+    prediction_df,
+    lineup_df,
+    contests_df,
+    top_percentiles=[20, 10],
+    salary_col="fanduel_salary",
+    # model_pickle_path=None,
+    # shap_data=None,
+    # shap_top_n=10
 ):
     """
     1) Compute overall RMSE/MAE/Bias for each category on entire population.
@@ -274,7 +292,9 @@ def evaluate_results(
     # We'll ensure the needed columns exist in prediction_df
     # Must have cat and cat+"_pred" for each cat, plus 'salary_col' for percentile logic
     # Then we do overall metrics
-    categories = [cat for cat in dfs_cats + ['fp_fanduel'] if cat in prediction_df.columns]
+    categories = [
+        cat for cat in dfs_cats + ["fp_fanduel"] if cat in prediction_df.columns
+    ]
     overall_stats = compute_overall_metrics(prediction_df, categories)
 
     # 1) Contest results
@@ -289,7 +309,9 @@ def evaluate_results(
     # 3) Build percentile data
     #    We'll also include p=100 to represent "all_pop"
     p_list = top_percentiles + [100]
-    df_percentile_data = compute_percentile_metrics(prediction_df, categories, p_list, salary_col)
+    df_percentile_data = compute_percentile_metrics(
+        prediction_df, categories, p_list, salary_col
+    )
 
     # 4) If possible, run SHAP
     # top_features_dict = {}
@@ -302,4 +324,4 @@ def evaluate_results(
     # else:
     #     top_features_dict = {}
 
-    return res_dict, df_percentile_data#, top_features_dict
+    return res_dict, df_percentile_data  # , top_features_dict

@@ -1,18 +1,32 @@
 import os
 import pickle
+from functools import reduce
+
 import numpy as np
 import pandas as pd
+import torch
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from torch import nn, optim
+
+from config.constants import select_device
+from config.dfs_categories import dfs_cats
+from config.fantasy_point_calculation import calculate_fp_fanduel
 
 
-def rolling_train_test_for_xgb(X, y, df,
-                               group_by="date", train_window=10,
-                               save_model=False, model_dir="models",
-                               xgb_param_dict=None,
-                               output_dir=None,
-                               quantile_label=None):
+def rolling_train_test_for_xgb(
+    X,
+    y,
+    df,
+    group_by="date",
+    train_window=10,
+    save_model=False,
+    model_dir="models",
+    xgb_param_dict=None,
+    output_dir=None,
+    quantile_label=None,
+):
     """
     Rolling train-test function for both daily and weekly training, based on a grouping parameter.
 
@@ -48,12 +62,20 @@ def rolling_train_test_for_xgb(X, y, df,
     all_fanduel_salaries, all_draftkings_salaries, all_yahoo_salaries = [], [], []
     all_fanduel_positions, all_draftkings_positions, all_yahoo_positions = [], [], []
 
-    cat_cols = ["team_abbreviation", "player_name", "opponent_abbr", "pos-draftkings", "pos-fanduel", "pos-yahoo", "season_year"]
+    cat_cols = [
+        "team_abbreviation",
+        "player_name",
+        "opponent_abbr",
+        "pos-draftkings",
+        "pos-fanduel",
+        "pos-yahoo",
+        "season_year",
+    ]
 
     # Loop over groups with a rolling window
     for idx in range(train_window, len(unique_groups)):
         current_group = unique_groups[idx]
-        training_groups = unique_groups[idx - train_window:idx]
+        training_groups = unique_groups[idx - train_window : idx]
 
         # Training data: all data in the rolling window
         X_train = X[X["group_col"].isin(training_groups)].copy()
@@ -67,7 +89,9 @@ def rolling_train_test_for_xgb(X, y, df,
             continue
 
         # Drop non-numeric columns before model training
-        X_train = X_train.drop(columns=["game_date", "group_col"]).reset_index(drop=True)
+        X_train = X_train.drop(columns=["game_date", "group_col"]).reset_index(
+            drop=True
+        )
         X_test = X_test.drop(columns=["game_date", "group_col"]).reset_index(drop=True)
 
         # Ensure categorical columns are of type 'category'
@@ -79,7 +103,9 @@ def rolling_train_test_for_xgb(X, y, df,
                 X_train[col] = pd.to_numeric(X_train[col], errors="coerce")
                 X_test[col] = pd.to_numeric(X_test[col], errors="coerce")
 
-        identifying_test_data = df[df["group_col"] == current_group][["player_name", "game_date", "game_id", "minutes_played"]].drop_duplicates()
+        identifying_test_data = df[df["group_col"] == current_group][
+            ["player_name", "game_date", "game_id", "minutes_played"]
+        ].drop_duplicates()
 
         # Create DMatrix for training and testing
         dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
@@ -95,14 +121,17 @@ def rolling_train_test_for_xgb(X, y, df,
         # --- user overrides ---
         if xgb_param_dict:  # None or {}
             # all keys except those that belong to the booster loop length
-            non_round_keys = {k: v for k, v in xgb_param_dict.items()
-                              if k not in ("num_boost_round", "n_estimators")}
+            non_round_keys = {
+                k: v
+                for k, v in xgb_param_dict.items()
+                if k not in ("num_boost_round", "n_estimators")
+            }
             params.update(non_round_keys)
 
         num_rounds = (
-                xgb_param_dict.get("num_boost_round")
-                or xgb_param_dict.get("n_estimators")
-                or 100  # ← previous implicit default
+            xgb_param_dict.get("num_boost_round")
+            or xgb_param_dict.get("n_estimators")
+            or 100  # ← previous implicit default
         )
 
         # Train the model
@@ -143,20 +172,22 @@ def rolling_train_test_for_xgb(X, y, df,
         print("")
 
     # Compile results into a DataFrame
-    results_df = pd.DataFrame({
-        "player_name": all_player_names,
-        "minutes_played": all_minutes_played,
-        "game_id": all_game_ids,
-        "game_date": all_game_dates,
-        "y": all_true_values,
-        "y_pred": all_predictions,
-        "fanduel_salary": all_fanduel_salaries,
-        "draftkings_salary": all_draftkings_salaries,
-        "yahoo_salary": all_yahoo_salaries,
-        "fanduel_position": all_fanduel_positions,
-        "draftkings_position": all_draftkings_positions,
-        "yahoo_position": all_yahoo_positions,
-    })
+    results_df = pd.DataFrame(
+        {
+            "player_name": all_player_names,
+            "minutes_played": all_minutes_played,
+            "game_id": all_game_ids,
+            "game_date": all_game_dates,
+            "y": all_true_values,
+            "y_pred": all_predictions,
+            "fanduel_salary": all_fanduel_salaries,
+            "draftkings_salary": all_draftkings_salaries,
+            "yahoo_salary": all_yahoo_salaries,
+            "fanduel_position": all_fanduel_positions,
+            "draftkings_position": all_draftkings_positions,
+            "yahoo_position": all_yahoo_positions,
+        }
+    )
     if output_dir and quantile_label:
         fname = f"fp_xgb_{quantile_label}.csv"
         results_df.to_csv(os.path.join(output_dir, fname), index=False)
@@ -171,7 +202,7 @@ def prepare_train_test_rnn_data(
     target_platform="fanduel",
     lookback=15,
     predict_ahead=1,
-    use_standard_scaler=False
+    use_standard_scaler=False,
 ):
     """
     Prepares (X_train, y_train) and (X_test, y_test) for an RNN by:
@@ -183,27 +214,37 @@ def prepare_train_test_rnn_data(
     """
     #################### 1) Sort & Basic Checks ####################
     train_df = train_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
-    test_df  = test_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
+    test_df = test_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
 
     target_col = f"fp_{target_platform}"
     if target_col not in train_df.columns or target_col not in test_df.columns:
         raise ValueError(f"Missing '{target_col}' in train/test DataFrame columns.")
 
     exclude = {
-        "player_name", "game_id", "game_date",
-        "available_flag", "group_col", "season_year",
-        "fp_draftkings", "fp_fanduel", "fp_yahoo"
+        "player_name",
+        "game_id",
+        "game_date",
+        "available_flag",
+        "group_col",
+        "season_year",
+        "fp_draftkings",
+        "fp_fanduel",
+        "fp_yahoo",
     }
-    cat_cols = [c for c in train_df.columns if "pos-" in c or c in ["team_abbreviation", "opponent"]]
+    cat_cols = [
+        c
+        for c in train_df.columns
+        if "pos-" in c or c in ["team_abbreviation", "opponent"]
+    ]
 
     #################### 2) One-hot encode ####################
     train_df = pd.get_dummies(train_df, columns=cat_cols, drop_first=True)
-    test_df  = pd.get_dummies(test_df, columns=cat_cols, drop_first=True)
+    test_df = pd.get_dummies(test_df, columns=cat_cols, drop_first=True)
 
     # Ensure same columns in both
     all_cols = sorted(set(train_df.columns).union(test_df.columns))
     train_df = train_df.reindex(columns=all_cols, fill_value=0)
-    test_df  = test_df.reindex(columns=all_cols, fill_value=0)
+    test_df = test_df.reindex(columns=all_cols, fill_value=0)
 
     feature_cols = [c for c in train_df.columns if c not in exclude]
 
@@ -215,35 +256,48 @@ def prepare_train_test_rnn_data(
     # We'll first do a pass to fit scalers for each player on the training data.
     for player, grp in train_df.groupby("player_name"):
         # convert to numeric
-        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values.reshape(-1,1)
+        feat_arr = (
+            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
+        targ_arr = (
+            grp[target_col]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0)
+            .values.reshape(-1, 1)
+        )
 
         # define scalers
         X_scaler = StandardScaler() if use_standard_scaler else MinMaxScaler()
         y_scaler = StandardScaler() if use_standard_scaler else MinMaxScaler()
 
         # fit on the player's train features/target
-        X_scaler.fit(feat_arr)   # shape: (num_rows, num_features)
-        y_scaler.fit(targ_arr)   # shape: (num_rows, 1)
+        X_scaler.fit(feat_arr)  # shape: (num_rows, num_features)
+        y_scaler.fit(targ_arr)  # shape: (num_rows, 1)
 
         scalers[player] = {"X": X_scaler, "y": y_scaler}
 
     #################### 4) Build Train Sequences (scaled) ####################
     X_train_list, y_train_list = [], []
     for player, grp in train_df.groupby("player_name"):
-        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        feat_arr = (
+            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
+        targ_arr = (
+            grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
 
         # If no scaler for this player, skip
         if player not in scalers:
             continue
         # apply scaling
-        feat_scaled = scalers[player]["X"].transform(feat_arr)  # shape: (rows, features)
-        targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1,1)).flatten()
+        feat_scaled = scalers[player]["X"].transform(
+            feat_arr
+        )  # shape: (rows, features)
+        targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1, 1)).flatten()
 
         for i in range(lookback, len(grp) - predict_ahead + 1):
-            X_seq = feat_scaled[i - lookback : i]             # shape: (lookback, features)
-            y_val = targ_scaled[i + predict_ahead - 1]       # single float
+            X_seq = feat_scaled[i - lookback : i]  # shape: (lookback, features)
+            y_val = targ_scaled[i + predict_ahead - 1]  # single float
             X_train_list.append(X_seq)
             y_train_list.append(y_val)
 
@@ -255,8 +309,12 @@ def prepare_train_test_rnn_data(
     players_test, dates_test = [], []
 
     for player, grp in test_df.groupby("player_name"):
-        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        feat_arr = (
+            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
+        targ_arr = (
+            grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
         date_arr = grp["game_date"].values
 
         if player not in scalers:
@@ -265,7 +323,7 @@ def prepare_train_test_rnn_data(
 
         # scale with the same scaler from train
         feat_scaled = scalers[player]["X"].transform(feat_arr)
-        targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1,1)).flatten()
+        targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1, 1)).flatten()
 
         for i in range(lookback, len(grp) - predict_ahead + 1):
             X_seq = feat_scaled[i - lookback : i]
@@ -298,7 +356,7 @@ def rolling_train_test_rnn(
     predict_ahead=1,
     platform="fanduel",
     step_size=1,
-    output_dir="output_csv"  # New parameter for output directory
+    output_dir="output_csv",  # New parameter for output directory
 ):
     """
     Minimal rolling approach:
@@ -320,9 +378,18 @@ def rolling_train_test_rnn(
     df["game_date"] = pd.to_datetime(df["game_date"])
 
     if group_by == "week":
-        df["group_col"] = df["game_date"].dt.year.astype(str) + "_" + df["game_date"].dt.isocalendar().week.astype(str)
-        df["group_col"] = df["group_col"].apply(lambda x: f'{x.split("_")[0]}_0{x.split("_")[1]}'
-                                                if len(x.split("_")[1]) == 1 else x)
+        df["group_col"] = (
+            df["game_date"].dt.year.astype(str)
+            + "_"
+            + df["game_date"].dt.isocalendar().week.astype(str)
+        )
+        df["group_col"] = df["group_col"].apply(
+            lambda x: (
+                f'{x.split("_")[0]}_0{x.split("_")[1]}'
+                if len(x.split("_")[1]) == 1
+                else x
+            )
+        )
     elif group_by == "date":
         df["group_col"] = df["game_date"]
     else:
@@ -340,7 +407,6 @@ def rolling_train_test_rnn(
             cat_df = df.copy()
             cat_result = rolling_train_test_rnn(
                 df=cat_df,
-
                 train_window=train_window,
                 hidden_size=hidden_size,
                 num_layers=num_layers,
@@ -355,30 +421,34 @@ def rolling_train_test_rnn(
                 platform=cat,
                 step_size=step_size,
                 output_dir=output_dir,
-                quantile_label=quantile_label
+                quantile_label=quantile_label,
             )
-            cat_result = cat_result.rename(columns={
-                "y_true": f"{cat}",
-                "y_pred": f"{cat}_pred"
-            })
+            cat_result = cat_result.rename(
+                columns={"y_true": f"{cat}", "y_pred": f"{cat}_pred"}
+            )
             # Save category-specific results
             cat_output_file = os.path.join(output_dir, f"{cat}_{quantile_label}.csv")
             cat_result.to_csv(cat_output_file, index=False)
             print(f"Saved category results to {cat_output_file}")
             all_category_results.append(cat_result)
 
-        combined_df = reduce(lambda left, right: pd.merge(
-            left, right,
-            on=["player_name", "game_date"],
-            how="outer"
-        ), all_category_results)
+        combined_df = reduce(
+            lambda left, right: pd.merge(
+                left, right, on=["player_name", "game_date"], how="outer"
+            ),
+            all_category_results,
+        )
         combined_df = combined_df.drop_duplicates(["player_name", "game_date"])
-        combined_df["fp_fanduel_pred"] = combined_df.apply(lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1)
+        combined_df["fp_fanduel_pred"] = combined_df.apply(
+            lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1
+        )
         combined_df["fp_fanduel"] = combined_df.apply(calculate_fp_fanduel, axis=1)
-        combined_df['game_date'] = pd.to_datetime(combined_df['game_date'])
+        combined_df["game_date"] = pd.to_datetime(combined_df["game_date"])
 
         # Save combined multi-target results
-        combined_output_file = os.path.join(output_dir, f"fp_fanduel_{quantile_label}.csv")
+        combined_output_file = os.path.join(
+            output_dir, f"fp_fanduel_{quantile_label}.csv"
+        )
         combined_df.to_csv(combined_output_file, index=False)
         print(f"Saved combined multi-target results to {combined_output_file}")
 
@@ -387,7 +457,9 @@ def rolling_train_test_rnn(
     # Rest of the function (single-target mode) remains unchanged
     for i in range(train_window, len(unique_groups), step_size):
         current_group = unique_groups[i]
-        print(f"\n=== Rolling step index {i}/{len(unique_groups)-1} - Testing group={current_group} ===")
+        print(
+            f"\n=== Rolling step index {i}/{len(unique_groups)-1} - Testing group={current_group} ==="
+        )
 
         train_groups = unique_groups[i - train_window : i]
         train_df = df[df["group_col"].isin(train_groups)]
@@ -407,12 +479,15 @@ def rolling_train_test_rnn(
             print("Skipping - train_df or test_df is empty.")
             continue
 
-        X_train, y_train, X_test, y_test, p_test, d_test, scalers = prepare_train_test_rnn_data(
-            train_df, test_df,
-            target_platform=platform,
-            train_window=train_window,
-            predict_ahead=predict_ahead,
-            use_standard_scaler=False
+        X_train, y_train, X_test, y_test, p_test, d_test, scalers = (
+            prepare_train_test_rnn_data(
+                train_df,
+                test_df,
+                target_platform=platform,
+                train_window=train_window,
+                predict_ahead=predict_ahead,
+                use_standard_scaler=False,
+            )
         )
 
         if len(X_train) == 0 or len(X_test) == 0:
@@ -425,16 +500,17 @@ def rolling_train_test_rnn(
             hidden_size=hidden_size,
             num_layers=num_layers,
             rnn_type=rnn_type,
-            dropout=dropout_rate
+            dropout=dropout_rate,
         )
 
         train_rnn_model(
             model,
-            X_train, y_train,
+            X_train,
+            y_train,
             epochs=epochs,
             batch_size=batch_size,
             learning_rate=learning_rate,
-            device=device
+            device=device,
         )
 
         model.eval()
@@ -448,8 +524,12 @@ def rolling_train_test_rnn(
             player_name = p_test[idx]
             if player_name not in scalers:
                 continue
-            pred_inv = scalers[player_name]["y"].inverse_transform(pred_val.reshape(-1,1))[0,0]
-            true_inv = scalers[player_name]["y"].inverse_transform(y_test[idx].reshape(-1,1))[0,0]
+            pred_inv = scalers[player_name]["y"].inverse_transform(
+                pred_val.reshape(-1, 1)
+            )[0, 0]
+            true_inv = scalers[player_name]["y"].inverse_transform(
+                y_test[idx].reshape(-1, 1)
+            )[0, 0]
             y_pred_unscaled.append(pred_inv)
             y_true_unscaled.append(true_inv)
 
@@ -458,12 +538,14 @@ def rolling_train_test_rnn(
         all_players.extend(p_test)
         all_dates.extend(d_test)
 
-    results_df = pd.DataFrame({
-        "player_name": all_players,
-        "game_date": all_dates,
-        "y_true": all_trues,
-        "y_pred": all_preds
-    })
+    results_df = pd.DataFrame(
+        {
+            "player_name": all_players,
+            "game_date": all_dates,
+            "y_true": all_trues,
+            "y_pred": all_preds,
+        }
+    )
 
     # Save single-target results
     if not multi_target_mode:
@@ -472,3 +554,99 @@ def rolling_train_test_rnn(
         print(f"Saved single-target results to {output_file}")
 
     return results_df
+
+
+class SimpleRNN(nn.Module):
+    """
+    A simple LSTM or GRU-based model for regression on time-series sequences.
+    """
+
+    def __init__(
+        self, input_size, hidden_size, num_layers=1, rnn_type="LSTM", dropout=0.0
+    ):
+        super(SimpleRNN, self).__init__()
+        if rnn_type.upper() == "LSTM":
+            self.rnn = nn.LSTM(
+                input_size,
+                hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+                dropout=dropout,
+            )
+        elif rnn_type.upper() == "GRU":
+            self.rnn = nn.GRU(
+                input_size,
+                hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+                dropout=dropout,
+            )
+        else:
+            raise ValueError("rnn_type must be 'LSTM' or 'GRU'")
+
+        self.fc = nn.Linear(hidden_size, 1)  # single output for regression
+
+    def forward(self, x):
+        # x: (batch_size, seq_len, input_size)
+        rnn_out, _ = self.rnn(x)  # (batch_size, seq_len, hidden_size)
+        last_hidden = rnn_out[:, -1, :]  # (batch_size, hidden_size)
+        out = self.fc(last_hidden)  # (batch_size, 1)
+        return out.squeeze()  # (batch_size,)
+
+
+def train_rnn_model(
+    model,
+    X_train,
+    y_train,
+    epochs,
+    batch_size,
+    learning_rate,
+    device,
+    X_val=None,
+    y_val=None,
+):
+    """
+    Standard training loop with MSE loss and Adam optimizer, on the chosen 'device'.
+    """
+    model.to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    criterion = nn.MSELoss()
+
+    X_t = torch.tensor(X_train, dtype=torch.float32, device=device)
+    y_t = torch.tensor(y_train, dtype=torch.float32, device=device)
+
+    has_val = (X_val is not None) and (y_val is not None)
+    if has_val:
+        X_v = torch.tensor(X_val, dtype=torch.float32, device=device)
+        y_v = torch.tensor(y_val, dtype=torch.float32, device=device)
+
+    for epoch in range(1, epochs + 1):
+        model.train()
+        indices = np.random.permutation(len(X_t))
+        num_batches = int(np.ceil(len(X_t) / batch_size))
+        epoch_loss = 0.0
+
+        for b in range(num_batches):
+            batch_idx = indices[b * batch_size : (b + 1) * batch_size]
+            X_batch = X_t[batch_idx]
+            y_batch = y_t[batch_idx]
+
+            optimizer.zero_grad()
+            preds = model(X_batch)
+            loss = criterion(preds, y_batch)
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+
+        if has_val:
+            model.eval()
+            with torch.no_grad():
+                val_preds = model(X_v)
+                val_loss = criterion(val_preds, y_v).item()
+            print(
+                f"Epoch {epoch}/{epochs}, Train Loss: {epoch_loss/num_batches:.4f}, Val Loss: {val_loss:.4f}"
+            )
+        else:
+            print(f"Epoch {epoch}/{epochs}, Train Loss: {epoch_loss/num_batches:.4f}")

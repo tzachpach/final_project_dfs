@@ -1,16 +1,8 @@
-import os
-
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
-import torch.optim as optim
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from functools import reduce
 
-from config.constants import select_device
-from config.dfs_categories import dfs_cats
-from config.fantasy_point_calculation import calculate_fp_fanduel
+from src.test_train_utils import rolling_train_test_rnn
 
 
 def prepare_train_test_rnn_data(
@@ -19,7 +11,7 @@ def prepare_train_test_rnn_data(
     target_platform="fanduel",
     train_window=15,
     predict_ahead=1,
-    use_standard_scaler=False
+    use_standard_scaler=False,
 ):
     """
     Prepares (X_train, y_train) and (X_test, y_test) for an RNN by:
@@ -31,7 +23,7 @@ def prepare_train_test_rnn_data(
     """
     # 1) Sort & Basic Checks
     train_df = train_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
-    test_df  = test_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
+    test_df = test_df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
 
     if target_platform not in ["fanduel", "draftkings", "yahoo"]:
         target_col = target_platform
@@ -43,30 +35,47 @@ def prepare_train_test_rnn_data(
 
     # Columns to exclude from features
     exclude = {
-        "player_name", "game_id", "game_date",
-        "available_flag", "group_col", "season_year",
-        "fp_draftkings", "fp_fanduel", "fp_yahoo"
+        "player_name",
+        "game_id",
+        "game_date",
+        "available_flag",
+        "group_col",
+        "season_year",
+        "fp_draftkings",
+        "fp_fanduel",
+        "fp_yahoo",
     }
 
     # Possible categorical columns (positions, teams, opponents)
-    cat_cols = [c for c in train_df.columns if "pos-" in c or c in ["team_abbreviation", "opponent"]]
+    cat_cols = [
+        c
+        for c in train_df.columns
+        if "pos-" in c or c in ["team_abbreviation", "opponent"]
+    ]
 
     # 2) One-hot encode
     train_df = pd.get_dummies(train_df, columns=cat_cols, drop_first=True)
-    test_df  = pd.get_dummies(test_df, columns=cat_cols, drop_first=True)
+    test_df = pd.get_dummies(test_df, columns=cat_cols, drop_first=True)
 
     # Ensure same columns in both
     all_cols = sorted(set(train_df.columns).union(test_df.columns))
     train_df = train_df.reindex(columns=all_cols, fill_value=0)
-    test_df  = test_df.reindex(columns=all_cols, fill_value=0)
+    test_df = test_df.reindex(columns=all_cols, fill_value=0)
 
     feature_cols = [c for c in train_df.columns if c not in exclude]
 
     # 3) Fit Per-Player Scalers on Train
     scalers = {}
     for player, grp in train_df.groupby("player_name"):
-        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values.reshape(-1, 1)
+        feat_arr = (
+            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
+        targ_arr = (
+            grp[target_col]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0)
+            .values.reshape(-1, 1)
+        )
 
         X_scaler = StandardScaler() if use_standard_scaler else MinMaxScaler()
         y_scaler = StandardScaler() if use_standard_scaler else MinMaxScaler()
@@ -81,8 +90,12 @@ def prepare_train_test_rnn_data(
         if player not in scalers:
             continue
 
-        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        feat_arr = (
+            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
+        targ_arr = (
+            grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
 
         feat_scaled = scalers[player]["X"].transform(feat_arr)
         targ_scaled = scalers[player]["y"].transform(targ_arr.reshape(-1, 1)).flatten()
@@ -104,8 +117,12 @@ def prepare_train_test_rnn_data(
         if player not in scalers:
             continue
 
-        feat_arr = grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
-        targ_arr = grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        feat_arr = (
+            grp[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
+        targ_arr = (
+            grp[target_col].apply(pd.to_numeric, errors="coerce").fillna(0).values
+        )
         date_arr = grp["game_date"].values
 
         feat_scaled = scalers[player]["X"].transform(feat_arr)
@@ -125,107 +142,7 @@ def prepare_train_test_rnn_data(
     return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
 
 
-###############################################################################
-# 4) Simple PyTorch LSTM or GRU
-###############################################################################
-class SimpleRNN(nn.Module):
-    """
-    A simple LSTM or GRU-based model for regression on time-series sequences.
-    """
-    def __init__(self, input_size, hidden_size, num_layers=1, rnn_type="LSTM", dropout=0.0):
-        super(SimpleRNN, self).__init__()
-        if rnn_type.upper() == "LSTM":
-            self.rnn = nn.LSTM(input_size, hidden_size, num_layers=num_layers,
-                               batch_first=True, dropout=dropout)
-        elif rnn_type.upper() == "GRU":
-            self.rnn = nn.GRU(input_size, hidden_size, num_layers=num_layers,
-                              batch_first=True, dropout=dropout)
-        else:
-            raise ValueError("rnn_type must be 'LSTM' or 'GRU'")
-
-        self.fc = nn.Linear(hidden_size, 1)  # single output for regression
-
-    def forward(self, x):
-        # x: (batch_size, seq_len, input_size)
-        rnn_out, _ = self.rnn(x)  # (batch_size, seq_len, hidden_size)
-        last_hidden = rnn_out[:, -1, :]  # (batch_size, hidden_size)
-        out = self.fc(last_hidden)       # (batch_size, 1)
-        return out.squeeze()             # (batch_size,)
-
-
-###############################################################################
-# 5) Training Function
-###############################################################################
-def train_rnn_model(
-    model,
-    X_train,
-    y_train,
-    epochs,
-    batch_size,
-    learning_rate,
-    device,
-    X_val=None,
-    y_val=None
-):
-    """
-    Standard training loop with MSE loss and Adam optimizer, on the chosen 'device'.
-    """
-    model.to(device)
-
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()
-
-    X_t = torch.tensor(X_train, dtype=torch.float32, device=device)
-    y_t = torch.tensor(y_train, dtype=torch.float32, device=device)
-
-    has_val = (X_val is not None) and (y_val is not None)
-    if has_val:
-        X_v = torch.tensor(X_val, dtype=torch.float32, device=device)
-        y_v = torch.tensor(y_val, dtype=torch.float32, device=device)
-
-    for epoch in range(1, epochs + 1):
-        model.train()
-        indices = np.random.permutation(len(X_t))
-        num_batches = int(np.ceil(len(X_t) / batch_size))
-        epoch_loss = 0.0
-
-        for b in range(num_batches):
-            batch_idx = indices[b * batch_size : (b + 1) * batch_size]
-            X_batch = X_t[batch_idx]
-            y_batch = y_t[batch_idx]
-
-            optimizer.zero_grad()
-            preds = model(X_batch)
-            loss = criterion(preds, y_batch)
-            loss.backward()
-            optimizer.step()
-
-            epoch_loss += loss.item()
-
-        if has_val:
-            model.eval()
-            with torch.no_grad():
-                val_preds = model(X_v)
-                val_loss = criterion(val_preds, y_v).item()
-            print(f"Epoch {epoch}/{epochs}, Train Loss: {epoch_loss/num_batches:.4f}, Val Loss: {val_loss:.4f}")
-        else:
-            print(f"Epoch {epoch}/{epochs}, Train Loss: {epoch_loss/num_batches:.4f}")
-
-
-###############################################################################
-# 6) Rolling Train-Test with Optionally Larger Train Window + Step Size
-###############################################################################
-
-
-###############################################################################
-# 7) Utility: run_rnn_and_merge_results (One Platform)
-###############################################################################
-def run_rnn_and_merge_results(
-    df,
-    group_by="week",
-    platform="fanduel",
-    **best_params
-):
+def run_rnn_and_merge_results(df, group_by="week", platform="fanduel", **best_params):
     """
     1) Runs rolling_train_test_rnn to get predictions for a single platform (e.g. "fanduel")
        using the best hyperparameters.
@@ -237,45 +154,55 @@ def run_rnn_and_merge_results(
     """
     # Pass everything to rolling_train_test_rnn, including step_size
     results_df = rolling_train_test_rnn(
-        df=df,
-        group_by=group_by,
-        platform=platform,
-        **best_params
+        df=df, group_by=group_by, platform=platform, **best_params
     )
 
     # Rename columns for the final merged output
-    results_df = results_df.rename(columns={
-        "y_true": f"fp_{platform}",
-        "y_pred": f"fp_{platform}_pred"
-    })
+    results_df = results_df.rename(
+        columns={"y_true": f"fp_{platform}", "y_pred": f"fp_{platform}_pred"}
+    )
 
     # Merge with original to bring back player_name, game_id, game_date, etc.
     keep_cols = [
-        "player_name", "game_id", "game_date", "minutes_played",
-        "salary-fanduel", "salary-draftkings", "salary-yahoo",
-        "pos-fanduel", "pos-draftkings", "pos-yahoo"
+        "player_name",
+        "game_id",
+        "game_date",
+        "minutes_played",
+        "salary-fanduel",
+        "salary-draftkings",
+        "salary-yahoo",
+        "pos-fanduel",
+        "pos-draftkings",
+        "pos-yahoo",
     ]
     keep_cols = [c for c in keep_cols if c in df.columns]
 
-    df_lookup = df[keep_cols].drop_duplicates(subset=["player_name", "game_id", "game_date"])
-
-    merged = pd.merge(
-        results_df[["player_name", "game_date", f"fp_{platform}", f"fp_{platform}_pred"]],
-        df_lookup,
-        on=["player_name", "game_date"],
-        how="left"
+    df_lookup = df[keep_cols].drop_duplicates(
+        subset=["player_name", "game_id", "game_date"]
     )
 
-    merged = merged.rename(columns={
-        "salary-fanduel": "fanduel_salary",
-        "salary-draftkings": "draftkings_salary",
-        "salary-yahoo": "yahoo_salary",
-        "pos-fanduel": "fanduel_position",
-        "pos-draftkings": "draftkings_position",
-        "pos-yahoo": "yahoo_position"
-    })
+    merged = pd.merge(
+        results_df[
+            ["player_name", "game_date", f"fp_{platform}", f"fp_{platform}_pred"]
+        ],
+        df_lookup,
+        on=["player_name", "game_date"],
+        how="left",
+    )
+
+    merged = merged.rename(
+        columns={
+            "salary-fanduel": "fanduel_salary",
+            "salary-draftkings": "draftkings_salary",
+            "salary-yahoo": "yahoo_salary",
+            "pos-fanduel": "fanduel_position",
+            "pos-draftkings": "draftkings_position",
+            "pos-yahoo": "yahoo_position",
+        }
+    )
 
     return merged
+
 
 # def tune_rnn_hyperparameters(df, param_grid=rnn_param_grid, group_by="week", platform="fanduel"):
 #     """

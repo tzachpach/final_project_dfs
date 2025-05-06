@@ -21,7 +21,7 @@ def predict_fp_rnn_q(
     multi_target_mode: bool,
     predict_ahead: int,
     step_size: int,
-    platform: str = "fanduel"
+    platform: str = "fanduel",
 ):
     """
     Multi-bin RNN predictions based on 'salary_quantile' slicing,
@@ -74,8 +74,13 @@ def predict_fp_rnn_q(
         salary_thresholds = [0.0]  # one bin => entire data
 
     # Ensure descending order
-    if any(salary_thresholds[i] < salary_thresholds[i+1] for i in range(len(salary_thresholds)-1)):
-        raise ValueError("salary_thresholds must be in descending order, e.g. [0.9,0.6,0.0].")
+    if any(
+        salary_thresholds[i] < salary_thresholds[i + 1]
+        for i in range(len(salary_thresholds) - 1)
+    ):
+        raise ValueError(
+            "salary_thresholds must be in descending order, e.g. [0.9,0.6,0.0]."
+        )
 
     # We'll unify final results here
     all_bin_results = []
@@ -93,7 +98,7 @@ def predict_fp_rnn_q(
 
         results_df = rolling_train_test_rnn(
             df=bin_df,
-            train_window=(train_window_days if mode=="daily" else train_window_weeks),
+            train_window=(train_window_days if mode == "daily" else train_window_weeks),
             hidden_size=hidden_size,
             num_layers=num_layers,
             learning_rate=learning_rate,
@@ -102,12 +107,12 @@ def predict_fp_rnn_q(
             batch_size=batch_size,
             rnn_type=rnn_type,
             multi_target_mode=multi_target_mode,
-            group_by=("date" if mode=="daily" else "week"),
+            group_by=("date" if mode == "daily" else "week"),
             predict_ahead=predict_ahead,
             platform=platform,
             step_size=step_size,
             quantile_label=bin_label,
-            output_dir=output_dir  # Pass output directory for saving
+            output_dir=output_dir,  # Pass output directory for saving
         )
 
         if results_df.empty:
@@ -116,24 +121,34 @@ def predict_fp_rnn_q(
         # Now we want to merge partial results with the original columns
         # so we keep [player_name, game_id, game_date, etc.].
         keep_cols = [
-            "player_name", "game_id", "game_date", "minutes_played",
-            "salary-fanduel", "salary-draftkings", "salary-yahoo",
-            "pos-fanduel", "pos-draftkings", "pos-yahoo"
+            "player_name",
+            "game_id",
+            "game_date",
+            "minutes_played",
+            "salary-fanduel",
+            "salary-draftkings",
+            "salary-yahoo",
+            "pos-fanduel",
+            "pos-draftkings",
+            "pos-yahoo",
         ]
         keep_cols = [c for c in keep_cols if c in bin_df.columns]
-        df_lookup = bin_df[keep_cols].drop_duplicates(subset=["player_name", "game_id", "game_date"])
+        df_lookup = bin_df[keep_cols].drop_duplicates(
+            subset=["player_name", "game_id", "game_date"]
+        )
 
         # Now rename the columns in results_df so we have "fp_<platform>" and "fp_<platform>_pred"
-        results_df = results_df.rename(columns={
-            "y_true": f"fp_{platform}",
-            "y_pred": f"fp_{platform}_pred"
-        })
+        results_df = results_df.rename(
+            columns={"y_true": f"fp_{platform}", "y_pred": f"fp_{platform}_pred"}
+        )
 
         merged_df = pd.merge(
-            results_df[["player_name", "game_date", f"fp_{platform}", f"fp_{platform}_pred"]],
+            results_df[
+                ["player_name", "game_date", f"fp_{platform}", f"fp_{platform}_pred"]
+            ],
             df_lookup,
             on=["player_name", "game_date"],
-            how="left"
+            how="left",
         )
 
         # Optionally rename for consistent columns
@@ -143,9 +158,11 @@ def predict_fp_rnn_q(
             "salary-yahoo": "yahoo_salary",
             "pos-fanduel": "fanduel_position",
             "pos-draftkings": "draftkings_position",
-            "pos-yahoo": "yahoo_position"
+            "pos-yahoo": "yahoo_position",
         }
-        merged_df = merged_df.rename(columns={k: v for k, v in renamed.items() if k in merged_df.columns})
+        merged_df = merged_df.rename(
+            columns={k: v for k, v in renamed.items() if k in merged_df.columns}
+        )
 
         # Add a bin_label column
         merged_df["_bin_label"] = bin_label
@@ -157,7 +174,9 @@ def predict_fp_rnn_q(
 
     # We must have a 'salary_quantile' column
     if "salary_quantile" not in df.columns:
-        raise ValueError("DataFrame must have 'salary_quantile' column for bin slicing.")
+        raise ValueError(
+            "DataFrame must have 'salary_quantile' column for bin slicing."
+        )
 
     # For i in range(len(salary_thresholds)):
     #   top bin => [ thresholds[0], 1.0 ]
@@ -172,11 +191,11 @@ def predict_fp_rnn_q(
             bin_label = f"bin_top_{lower_q}"
             bin_slice = local_df[local_df["salary_quantile"] >= lower_q].copy()
         else:
-            higher_q = salary_thresholds[i-1]
+            higher_q = salary_thresholds[i - 1]
             bin_label = f"bin_{lower_q}_to_{higher_q}"
             bin_slice = local_df[
-                (local_df["salary_quantile"] >= lower_q) &
-                (local_df["salary_quantile"] < higher_q)
+                (local_df["salary_quantile"] >= lower_q)
+                & (local_df["salary_quantile"] < higher_q)
             ].copy()
 
         part_df = train_rnn_for_bin(bin_slice, bin_label)

@@ -6,9 +6,10 @@ from config.dfs_categories import same_game_cols, dfs_cats
 from config.fantasy_point_calculation import (
     calculate_fp_fanduel,
     calculate_fp_yahoo,
-    calculate_fp_draftkings
+    calculate_fp_draftkings,
 )
 from src.test_train_utils import rolling_train_test_for_xgb
+
 
 def predict_fp_xgb_q(
     enriched_df,
@@ -17,7 +18,7 @@ def predict_fp_xgb_q(
     train_window_weeks=4,
     salary_thresholds=None,
     save_model=True,
-    xgb_param_dict=None
+    xgb_param_dict=None,
 ):
     """
     Creates multiple sub-DataFrames based on a descending list of salary quantile thresholds,
@@ -61,7 +62,7 @@ def predict_fp_xgb_q(
     output_dir = f"output_csv/xgb_{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
 
-    enriched_df = enriched_df.dropna(subset=['salary_quantile'])
+    enriched_df = enriched_df.dropna(subset=["salary_quantile"])
     # Determine grouping + rolling window
     if mode not in ["daily", "weekly"]:
         raise ValueError("mode must be either 'daily' or 'weekly'.")
@@ -71,13 +72,18 @@ def predict_fp_xgb_q(
 
     # If user didn't pass thresholds, default to a single bin: all data
     if not salary_thresholds:
-        salary_thresholds = [0.0]   # i.e. everything
+        salary_thresholds = [0.0]  # i.e. everything
 
     # Ensure the thresholds are in descending order, e.g. [0.9, 0.6, 0.3, 0.0]
     # If the user always passes them in descending, we skip sorting.
     # But let's do a check:
-    if any(salary_thresholds[i] < salary_thresholds[i+1] for i in range(len(salary_thresholds)-1)):
-        raise ValueError("salary_thresholds must be in descending order, e.g. [0.9, 0.6, 0.0].")
+    if any(
+        salary_thresholds[i] < salary_thresholds[i + 1]
+        for i in range(len(salary_thresholds) - 1)
+    ):
+        raise ValueError(
+            "salary_thresholds must be in descending order, e.g. [0.9, 0.6, 0.0]."
+        )
 
     final_bin_dfs = []  # store partial predictions from each bin
 
@@ -98,17 +104,21 @@ def predict_fp_xgb_q(
             # If rolling_train_test_for_xgb can handle xgb_param_dict, pass it in.
             # Otherwise we ignore it. We'll show an example ignoring for now:
             cat_results = rolling_train_test_for_xgb(
-                X, y, df_bin,
+                X,
+                y,
+                df_bin,
                 group_by=group_col,
                 train_window=rolling_window,
                 save_model=save_model,
                 model_dir="models",
                 xgb_param_dict=xgb_param_dict,
-                output_dir = output_dir,
-                quantile_label = bin_label
+                output_dir=output_dir,
+                quantile_label=bin_label,
             )
 
-            cat_results.rename(columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True)
+            cat_results.rename(
+                columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True
+            )
 
             if combined_df.empty:
                 combined_df = cat_results
@@ -117,22 +127,37 @@ def predict_fp_xgb_q(
                     combined_df,
                     cat_results,
                     on=[
-                        'player_name','minutes_played','game_date','game_id',
-                        'fanduel_salary','draftkings_salary','yahoo_salary',
-                        'fanduel_position','draftkings_position','yahoo_position'
+                        "player_name",
+                        "minutes_played",
+                        "game_date",
+                        "game_id",
+                        "fanduel_salary",
+                        "draftkings_salary",
+                        "yahoo_salary",
+                        "fanduel_position",
+                        "draftkings_position",
+                        "yahoo_position",
                     ],
-                    how='outer',
-                    suffixes=('', f'_{cat}')
+                    how="outer",
+                    suffixes=("", f"_{cat}"),
                 )
 
         # Now compute final fantasy points
-        combined_df['fp_fanduel_pred'] = combined_df.apply(lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1)
-        combined_df['fp_yahoo_pred']   = combined_df.apply(lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1)
-        combined_df['fp_draftkings_pred'] = combined_df.apply(lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1)
+        combined_df["fp_fanduel_pred"] = combined_df.apply(
+            lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1
+        )
+        combined_df["fp_yahoo_pred"] = combined_df.apply(
+            lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1
+        )
+        combined_df["fp_draftkings_pred"] = combined_df.apply(
+            lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1
+        )
 
-        combined_df['fp_fanduel']      = combined_df.apply(calculate_fp_fanduel, axis=1)
-        combined_df['fp_yahoo']        = combined_df.apply(calculate_fp_yahoo, axis=1)
-        combined_df['fp_draftkings']   = combined_df.apply(calculate_fp_draftkings, axis=1)
+        combined_df["fp_fanduel"] = combined_df.apply(calculate_fp_fanduel, axis=1)
+        combined_df["fp_yahoo"] = combined_df.apply(calculate_fp_yahoo, axis=1)
+        combined_df["fp_draftkings"] = combined_df.apply(
+            calculate_fp_draftkings, axis=1
+        )
 
         # Optionally add a column indicating the bin label
         combined_df["_bin_label"] = bin_label
@@ -153,16 +178,16 @@ def predict_fp_xgb_q(
         if i == 0:
             # top bin => salary_quantile >= lower_q
             bin_label = f"bin_top_{lower_q}"
-            df_bin = enriched_df[enriched_df['salary_quantile'] >= lower_q].copy()
+            df_bin = enriched_df[enriched_df["salary_quantile"] >= lower_q].copy()
             part_df = train_bin(df_bin, bin_label)
             final_bin_dfs.append(part_df)
         else:
             # middle bins => [ thresholds[i], thresholds[i-1] )
-            higher_q = salary_thresholds[i-1]  # the next bigger threshold
+            higher_q = salary_thresholds[i - 1]  # the next bigger threshold
             bin_label = f"bin_{lower_q}_to_{higher_q}"
             df_bin = enriched_df[
-                (enriched_df['salary_quantile'] >= lower_q) &
-                (enriched_df['salary_quantile'] < higher_q)
+                (enriched_df["salary_quantile"] >= lower_q)
+                & (enriched_df["salary_quantile"] < higher_q)
             ].copy()
             part_df = train_bin(df_bin, bin_label)
             final_bin_dfs.append(part_df)

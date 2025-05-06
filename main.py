@@ -3,10 +3,13 @@ from datetime import datetime
 import pandas as pd
 
 
-from config.constants import best_params
 from config.model_configs import model_configs
-from src.data_enrichment import add_anticipated_defense_features, add_last_season_data_with_extras, add_time_dependent_features_v2, \
-    add_running_season_stats
+from src.data_enrichment import (
+    add_anticipated_defense_features,
+    add_last_season_data_with_extras,
+    add_time_dependent_features_v2,
+    add_running_season_stats,
+)
 from src.evaluate_results import evaluate_results
 from src.lineup_genetic_optimizer import get_lineup
 from src.predict_fp_rnn_q import predict_fp_rnn_q
@@ -17,6 +20,7 @@ from src.preprocessing import merge_all_seasons, preprocess_all_seasons_data
 def preprocess_pipeline():
     all_seasons_df = merge_all_seasons()
     return preprocess_all_seasons_data(all_seasons_df)
+
 
 def enrich_pipeline(df):
     """
@@ -32,19 +36,19 @@ def enrich_pipeline(df):
 
     # Enrich across seasons
     enriched_seasons = []
-    all_seasons = [s for s in df['season_year'].unique()] # Store full season strings
+    all_seasons = [s for s in df["season_year"].unique()]  # Store full season strings
 
-    for current_season_year in df['season_year'].unique():
+    for current_season_year in df["season_year"].unique():
         print(f"Processing season year: {current_season_year}")
-        season_df = df[df['season_year'] == current_season_year].copy()
+        season_df = df[df["season_year"] == current_season_year].copy()
 
         season_start_year = int(current_season_year.split("-")[0])  # Get as integer
         prev_season_start_year = str(season_start_year - 1)
-        prev_season_year = f"{prev_season_start_year}-{str(season_start_year)[-2:]}" # Full prev season
+        prev_season_year = f"{prev_season_start_year}-{str(season_start_year)[-2:]}"  # Full prev season
 
-        if prev_season_year in all_seasons: # Correct comparison
+        if prev_season_year in all_seasons:  # Correct comparison
             print(f"Adding stats from previous season: {prev_season_year}")
-            prev_season_df = df[df['season_year'] == prev_season_year]
+            prev_season_df = df[df["season_year"] == prev_season_year]
             season_df = add_last_season_data_with_extras(season_df, prev_season_df)
         else:
             print(f"No data for previous season: {prev_season_year}")
@@ -56,7 +60,7 @@ def enrich_pipeline(df):
 
     enriched_df = add_anticipated_defense_features(enriched_df)
 
-    enriched_df = enriched_df.sort_values(['game_date']).reset_index(drop=True)
+    enriched_df = enriched_df.sort_values(["game_date"]).reset_index(drop=True)
     print("All seasons enriched successfully!")
 
     return enriched_df
@@ -77,10 +81,10 @@ def get_predictions_df(cfg, enriched_df):
             mode=cfg.get("mode", "daily"),
             train_window_days=cfg.get("train_window_days", 30),
             train_window_weeks=cfg.get("train_window_weeks", 4),
-            salary_thresholds = cfg.get("salary_thresholds", [0.9, 0.6, 0.0]),
+            salary_thresholds=cfg.get("salary_thresholds", [0.9, 0.6, 0.0]),
             save_model=cfg.get("save_model", True),
             xgb_param_dict=cfg.get("xgb_param_dict", {}),
-    )
+        )
 
         return predictions
 
@@ -89,7 +93,7 @@ def get_predictions_df(cfg, enriched_df):
         # e.g.:
         predictions = predict_fp_rnn_q(
             enriched_df,
-            mode = cfg.get("mode", "daily"),
+            mode=cfg.get("mode", "daily"),
             # train_window_days=cfg.get("train_window_days", 30),
             train_window_weeks=cfg.get("train_window_weeks", 4),
             train_window_days=cfg.get("train_window_days", 12),
@@ -104,7 +108,7 @@ def get_predictions_df(cfg, enriched_df):
             multi_target_mode=cfg.get("multi_target_mode", False),
             predict_ahead=cfg.get("predict_ahead", 1),
             step_size=cfg.get("step_size", 1),
-            platform=cfg.get("platform", "fanduel")
+            platform=cfg.get("platform", "fanduel"),
         )
         return predictions
 
@@ -118,13 +122,14 @@ def main():
     print("Starting pipeline...")
     preprocessed_df = preprocess_pipeline()
 
-    preprocessed_df = preprocessed_df[preprocessed_df['season_year'].isin(['2016-17', '2017-18'])]
-    preprocessed_df = preprocessed_df.sort_values(['game_date']).reset_index(drop=True)
+    preprocessed_df = preprocessed_df[
+        preprocessed_df["season_year"].isin(["2016-17", "2017-18"])
+    ]
+    preprocessed_df = preprocessed_df.sort_values(["game_date"]).reset_index(drop=True)
     print("Preprocessing completed successfully!")
     # Step 2: Enrich data
     enriched_df = enrich_pipeline(preprocessed_df)
     print("Enrichment completed successfully!")
-
 
     contests_df = pd.read_csv("data/contests_data/fanduel_nba_contests.csv")
 
@@ -154,17 +159,18 @@ def main():
                 tw_weeks_list,
                 save_model_list,
                 xgb_params_list,
-                model_dir_list
+                model_dir_list,
             )
 
-            for (thresholds_val,
-                 mode_val,
-                 tw_days_val,
-                 tw_weeks_val,
-                 save_model_val,
-                 xgb_params_val,
-                 model_dir_val
-                 ) in product_iter:
+            for (
+                thresholds_val,
+                mode_val,
+                tw_days_val,
+                tw_weeks_val,
+                save_model_val,
+                xgb_params_val,
+                model_dir_val,
+            ) in product_iter:
 
                 # Build a sub-config with single, chosen values
                 sub_cfg = {
@@ -175,15 +181,19 @@ def main():
                     "train_window_weeks": tw_weeks_val,
                     "save_model": save_model_val,
                     "xgb_params": xgb_params_val,
-                    "model_dir": model_dir_val
+                    "model_dir": model_dir_val,
                 }
 
-                print(f"\n=== Running XGBoost sub-run: thresholds={thresholds_val}, "
-                      f"mode={mode_val}, tw_days={tw_days_val}, xgb_params={xgb_params_val} ===")
+                print(
+                    f"\n=== Running XGBoost sub-run: thresholds={thresholds_val}, "
+                    f"mode={mode_val}, tw_days={tw_days_val}, xgb_params={xgb_params_val} ==="
+                )
 
                 predictions_df = get_predictions_df(sub_cfg, enriched_df)
                 if not isinstance(predictions_df, pd.DataFrame) or predictions_df.empty:
-                    print("[WARN] No predictions / empty results for this sub-run. Skipping lineup/eval.")
+                    print(
+                        "[WARN] No predictions / empty results for this sub-run. Skipping lineup/eval."
+                    )
                     continue
 
                 # lineups + evaluate
@@ -191,7 +201,7 @@ def main():
                 res_dict, df_percentiles = evaluate_results(
                     prediction_df=predictions_df,
                     lineup_df=lineup_df,
-                    contests_df=contests_df
+                    contests_df=contests_df,
                 )
 
                 # add sub-run param info to res_dict
@@ -204,8 +214,10 @@ def main():
                 # res_dict["cfg_model_dir"] = model_dir_val
 
                 # store or save df_percentiles
-                df_percentiles_filename = (f"output_csv/percentiles_xgb_"
-                                           f"{mode_val}_{tw_days_val}_{thresholds_val}_{xgb_params_val}_{now_str}.csv")
+                df_percentiles_filename = (
+                    f"output_csv/percentiles_xgb_"
+                    f"{mode_val}_{tw_days_val}_{thresholds_val}_{xgb_params_val}_{now_str}.csv"
+                )
                 df_percentiles.to_csv(df_percentiles_filename, index=False)
 
                 all_runs.append(res_dict)
@@ -239,22 +251,24 @@ def main():
                 rnn_type_list,
                 salary_thresh_list,
                 multi_target_list,
-                predict_ahead_list
+                predict_ahead_list,
             )
 
-            for (mode_val,
-                 tw_weeks_val,
-                 tw_days_val,
-                 hidden_val,
-                 layer_val,
-                 lr_val,
-                 drop_val,
-                 epoch_val,
-                 bs_val,
-                 rnn_type_val,
-                 sal_thresh_val,
-                 multi_val,
-                 pred_ahead_val) in product_iter:
+            for (
+                mode_val,
+                tw_weeks_val,
+                tw_days_val,
+                hidden_val,
+                layer_val,
+                lr_val,
+                drop_val,
+                epoch_val,
+                bs_val,
+                rnn_type_val,
+                sal_thresh_val,
+                multi_val,
+                pred_ahead_val,
+            ) in product_iter:
 
                 sub_cfg = {
                     "model_type": "RNN",
@@ -270,24 +284,28 @@ def main():
                     "rnn_type": rnn_type_val,
                     "salary_thresholds": sal_thresh_val,
                     "multi_target_mode": multi_val,
-                    "predict_ahead": pred_ahead_val
+                    "predict_ahead": pred_ahead_val,
                 }
 
-                print(f"\n=== Running RNN sub-run: tw_weeks={tw_weeks_val}, hidden_size={hidden_val}, "
-                      f"layers={layer_val}, lr={lr_val}, drop={drop_val}, epochs={epoch_val}, "
-                      f"batch={bs_val}, rnn_type={rnn_type_val}, sal_thresh={sal_thresh_val}, multi={multi_val}, "
-                      f"pred_ahead={pred_ahead_val} ===")
+                print(
+                    f"\n=== Running RNN sub-run: tw_weeks={tw_weeks_val}, hidden_size={hidden_val}, "
+                    f"layers={layer_val}, lr={lr_val}, drop={drop_val}, epochs={epoch_val}, "
+                    f"batch={bs_val}, rnn_type={rnn_type_val}, sal_thresh={sal_thresh_val}, multi={multi_val}, "
+                    f"pred_ahead={pred_ahead_val} ==="
+                )
 
                 predictions_df = get_predictions_df(sub_cfg, enriched_df)
                 if not isinstance(predictions_df, pd.DataFrame) or predictions_df.empty:
-                    print("[WARN] No predictions / empty results for this sub-run. Skipping.")
+                    print(
+                        "[WARN] No predictions / empty results for this sub-run. Skipping."
+                    )
                     continue
 
                 lineup_df = get_lineup(predictions_df)
                 res_dict, df_percentiles = evaluate_results(
                     prediction_df=predictions_df,
                     lineup_df=lineup_df,
-                    contests_df=contests_df
+                    contests_df=contests_df,
                 )
 
                 # store the sub-run param info
@@ -303,8 +321,10 @@ def main():
                 res_dict["cfg_multi_target"] = multi_val
                 res_dict["cfg_predict_ahead"] = pred_ahead_val
 
-                df_percentiles_filename = (f"output_csv/percentiles_rnn_"
-                                           f"{rnn_type_val}_{tw_weeks_val}_{lr_val}_{drop_val}_{now_str}.csv")
+                df_percentiles_filename = (
+                    f"output_csv/percentiles_rnn_"
+                    f"{rnn_type_val}_{tw_weeks_val}_{lr_val}_{drop_val}_{now_str}.csv"
+                )
                 df_percentiles.to_csv(df_percentiles_filename, index=False)
 
                 all_runs.append(res_dict)
@@ -318,6 +338,7 @@ def main():
     out_path = f"output_csv/master_results_{now_str}.csv"
     df_master.to_csv(out_path, index=False)
     print(f"\nAll runs complete. Master results saved to {out_path}.")
+
 
 if __name__ == "__main__":
     main()
