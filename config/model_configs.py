@@ -1,40 +1,48 @@
 model_configs = [
+    # -------------------------------------------------- 8 XGBoost variants
     {
         "model_type": "XGBoost",
-        # We want to try multiple threshold sets
+        # ── DFS salary‑bin strategies (2) ────────────────────────────────
         "thresholds": [
-            [0.9, 0.6, 0.0],
-            [0.7, 0.0],
-            # [0.95, 0.7, 0.0]
+            [0.90, 0.60, 0.00],  # top‑10 % / mid‑30 % / rest
+            [0.75, 0.00],  # top‑25 % / rest
         ],
-        "mode": ["daily"],
-        "train_window_days": [20, 30],  # two possible day-window values
-        "train_window_weeks": [4],  # single int for weekly
+        # ── Mode toggle (2) ──────────────────────────────────────────────
+        "mode": ["daily", "weekly"],  # ← both evaluated
+        # Look‑back windows (1 each → they do **not** multiply)
+        "train_window_days": [20],  # used only when mode == "daily"
+        "train_window_weeks": [4],  # used only when mode == "weekly"
         "save_model": [True],
-        # multiple possible XGB param combos
+        # ── Booster depth / LR pairs (2) ─────────────────────────────────
         "xgb_params": [
-            {},  # the default
-            {"max_depth": 3},
-            # {"max_depth": 5, "learning_rate": 0.05},
-            {"max_depth": 5, "learning_rate": 0.01},
+            {},  # baseline (depth‑6, η 0.3)
+            {"max_depth": 5, "eta": 0.05},  # deeper, slower LR
         ],
         "model_dir": ["models"],
     },
+    # -------------------------------------------------- 8 RNN variants
     {
         "model_type": "RNN",
-        "mode": ["weekly"],
-        "train_window_weeks": [3, 6],
-        "train_window_days": [1],
-        "hidden_size": [3, 5],
-        "num_layers": [2, 4],
-        "learning_rate": [0.001, 0.01],
-        "dropout_rate": [0.2],
-        "epochs": [10, 20],
-        "batch_size": [32, 64],
         "rnn_type": ["LSTM"],
-        "salary_thresholds": [[0.9, 0.6, 0.0], [0.7, 0.0]],
-        "multi_target_mode": [False, True],
+        # Mode toggle (2)
+        "mode": ["daily", "weekly"],
+        # Look‑back / window (1 each)
+        "train_window_days": [15],  # used in daily mode
+        "train_window_weeks": [4],  # used in weekly mode
+        # Network capacity grid: hidden size (1) × layers (2) = 2
+        "hidden_size": [64],
+        "num_layers": [1, 2],
+        # Salary‑bin strategies (2)
+        "salary_thresholds": [
+            [0.90, 0.60, 0.00],
+            [0.75, 0.00],
+        ],
+        # Fixed training hyper‑params to keep runtime low
+        "learning_rate": [0.001],
+        "dropout_rate": [0.2],
+        "epochs": [15],
+        "batch_size": [32],
+        "multi_target_mode": [True, False],
         "predict_ahead": [1],
     },
 ]
-# Add more model configurations as needed

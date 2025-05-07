@@ -187,8 +187,8 @@ def add_last_season_zscores(df: pd.DataFrame) -> pd.DataFrame:
     """
     stat_cols = [c for c in df.columns if c.startswith("last_season_avg_")]
 
-    for pos in df["fanduel_position"].unique():
-        mask = df["fanduel_position"] == pos
+    for pos in df["pos-fanduel"].unique():
+        mask = df["pos-fanduel"] == pos
         sub = df.loc[mask, stat_cols]
         mu, sigma = sub.mean(), sub.std(ddof=0).replace(0, 1)
         df.loc[mask, [f"{c}_z" for c in stat_cols]] = (sub - mu) / sigma

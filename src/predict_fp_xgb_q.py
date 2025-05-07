@@ -163,7 +163,7 @@ def predict_fp_xgb_q(
         combined_df["_bin_label"] = bin_label
 
         final_output_file = os.path.join(output_dir, "final_fp_xgb.csv")
-        final_df.to_csv(final_output_file, index=False)
+        combined_df.to_csv(final_output_file, index=False)
 
         return combined_df
 
