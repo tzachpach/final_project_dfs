@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from torch import nn, optim
 
 from config.constants import select_device
-from config.dfs_categories import dfs_cats
+from config.dfs_categories import dfs_cats, same_game_cols
 from config.fantasy_point_calculation import calculate_fp_fanduel
 
 
@@ -196,24 +196,6 @@ def rolling_train_test_for_xgb(
     return results_df
 
 
-def make_unique_player_key(df: pd.DataFrame) -> pd.Series:
-    """
-    Robust surrogate key: name_team_season[_n].
-    """
-    base = (
-        df["player_name"].astype(str).str.replace(" ", "_")
-        + "_"
-        + df["team_abbreviation"].astype(str)
-        + "_"
-        + df["season_year"].str[:4]  # "2023-24" -> "2023"
-    )
-
-    dup_idx = df.groupby(base).cumcount()  # 0,1,2,...
-    # Only append suffix where duplicates exist (dup_idx > 0)
-    key = np.where(dup_idx == 0, base, base + "_" + dup_idx.astype(str))
-    return pd.Series(key, index=df.index, name="player_key")
-
-
 def prepare_train_test_rnn_data(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
@@ -223,109 +205,123 @@ def prepare_train_test_rnn_data(
     use_standard_scaler=False,
 ):
     """
-    Prepares (X_train, y_train) and (X_test, y_test) for an RNN by:
-      1) Doing minimal cleansing + get_dummies on train_df & test_df.
-      2) Building sequences WITH per-player scaling (fit on train, apply on test).
-
-    Returns:
-        X_train, y_train, X_test, y_test, players_test, dates_test, scalers
+    Return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
+    with *per‑player* scaling, and no same‑game leakage.
     """
 
-    # ---------- 0 | create an ad‑hoc unique key ----------
-    #  (concat name + current team; good enough to split 99 % of name clashes)
+    # ------------------------------------------------------------------ #
+    # 0. Unique key – keep it ***consistent everywhere***                #
+    # ------------------------------------------------------------------ #
     for df in (train_df, test_df):
-        df["player_key"] = make_unique_player_key(df)
+        df["player_key"] = (
+            df["player_name"].str.upper().str.replace(" ", "_")
+            + "_"
+            + df["team_abbreviation"].str.upper()
+        )  # “AARON_GORDON_ORL”
 
-    key_col = "player_key"
-    #################### 1) Sort & Basic Checks ####################
-    train_df = train_df.sort_values([key_col, "game_date"]).reset_index(drop=True)
-    test_df = test_df.sort_values([key_col, "game_date"]).reset_index(drop=True)
+    KEY = "player_key"
 
-    target_col = f"fp_{target_platform}"
-    if target_col not in train_df.columns or target_col not in test_df.columns:
-        raise ValueError(f"Missing '{target_col}' in train/test DataFrame columns.")
+    # ------------------------------------------------------------------ #
+    # 1. Sort & target column                                            #
+    # ------------------------------------------------------------------ #
+    train_df = train_df.sort_values([KEY, "game_date"]).reset_index(drop=True)
+    test_df = test_df.sort_values([KEY, "game_date"]).reset_index(drop=True)
 
-    exclude = {
+    target_col = (
+        target_platform
+        if target_platform in train_df.columns
+        else (
+            f"fp_{target_platform}"
+            if f"fp_{target_platform}" in train_df.columns
+            else ValueError(f"{target_platform} not found")
+        )
+    )
+
+    # columns never to feed to the net
+    EXCLUDE = {
         "player_name",
-        key_col,
+        KEY,
         "game_id",
         "game_date",
-        "available_flag",
         "group_col",
+        "available_flag",
         "season_year",
         "fp_draftkings",
         "fp_fanduel",
         "fp_yahoo",
     }
-    cat_cols = [
+
+    CAT_COLS = [
         c
         for c in train_df.columns
-        if "pos-" in c or c in ["team_abbreviation", "opponent"]
+        if "pos-" in c or c in ("team_abbreviation", "opponent_abbr")
     ]
 
-    #################### 2) One-hot encode ####################
-    train_df = pd.get_dummies(train_df, columns=cat_cols, drop_first=True)
-    train_cols = train_df.columns  # freeze final train design matrix
+    # ------------------------------------------------------------------ #
+    # 2. One‑hot encode (train​→​freeze design matrix​→​align test)        #
+    # ------------------------------------------------------------------ #
+    train_df = pd.get_dummies(train_df, columns=CAT_COLS, drop_first=True)
+    DESIGN = train_df.columns  # frozen
 
-    test_df = pd.get_dummies(test_df, columns=cat_cols, drop_first=True)
-    test_df = test_df.reindex(columns=train_cols, fill_value=0)  # align
+    test_df = pd.get_dummies(test_df, columns=CAT_COLS, drop_first=True).reindex(
+        columns=DESIGN, fill_value=0
+    )
 
-    feature_cols = [c for c in train_cols if c not in exclude]
+    # final feature set
+    feature_cols = [c for c in DESIGN if c not in EXCLUDE and c not in same_game_cols]
+    assert not (set(feature_cols) & set(same_game_cols))
 
-    # make sure numeric dtypes are float32 early (faster later)
-    train_df[feature_cols] = train_df[feature_cols].astype(np.float32)
-    test_df[feature_cols] = test_df[feature_cols].astype(np.float32)
+    # make everything numeric *once*
+    train_df[feature_cols] = (
+        train_df[feature_cols].apply(pd.to_numeric).astype("float32")
+    )
+    test_df[feature_cols] = test_df[feature_cols].apply(pd.to_numeric).astype("float32")
 
-    #################### 3) Fit Per-Player Scalers on Train ####################
-    # We'll store a dict of scalers keyed by player_name
+    # ------------------------------------------------------------------ #
+    # 3. Per‑player scalers (skip players with <2 rows)                  #
+    # ------------------------------------------------------------------ #
     scaler_cls = StandardScaler if use_standard_scaler else MinMaxScaler
     scalers = {}
 
-    for player, grp in train_df.groupby(key_col):
-        X_scaler = scaler_cls()
-        y_scaler = scaler_cls()
-        X_scaler.fit(grp[feature_cols].values)
-        y_scaler.fit(grp[[target_col]].values)
-        scalers[player] = {"X": X_scaler, "y": y_scaler}
-
-    #################### 4) Build Train Sequences (scaled) ####################
-    X_tr, y_tr = [], []
-    for player, grp in train_df.groupby(key_col):
-        if player not in scalers:
+    for k, grp in train_df.groupby(KEY):
+        if len(grp) < 2:  # can’t scale a singleton
             continue
-        feat_scaled = scalers[player]["X"].transform(grp[feature_cols].values)
-        targ_scaled = scalers[player]["y"].transform(grp[[target_col]].values).flatten()
+        Xs = grp[feature_cols].values
+        ys = grp[[target_col]].values
+        scalers[k] = {"X": scaler_cls().fit(Xs), "y": scaler_cls().fit(ys)}
 
-        for i in range(lookback, len(grp) - predict_ahead + 1):
-            X_tr.append(feat_scaled[i - lookback : i])
-            y_tr.append(targ_scaled[i + predict_ahead - 1])
+    # ------------------------------------------------------------------ #
+    # 4. Build sequences helper                                          #
+    # ------------------------------------------------------------------ #
+    def build_sequences(source_df, is_train: bool):
+        X_lst, y_lst, p_lst, d_lst = [], [], [], []
 
-    X_train = np.asarray(X_tr, dtype=np.float32)
-    y_train = np.asarray(y_tr, dtype=np.float32)
+        for k, grp in source_df.groupby(KEY):
+            if k not in scalers:  # unseen in train
+                continue
+            feat = scalers[k]["X"].transform(grp[feature_cols].values)
+            targ = scalers[k]["y"].transform(grp[[target_col]].values).flatten()
+            dates = grp["game_date"].values
 
-    #################### 5) Build Test Sequences (scaled) ####################
-    X_te, y_te, players_test, dates_test = [], [], [], []
+            for i in range(lookback, len(grp) - predict_ahead + 1):
+                X_lst.append(feat[i - lookback : i])
+                y_lst.append(targ[i + predict_ahead - 1])
+                if not is_train:
+                    p_lst.append(k)
+                    d_lst.append(dates[i + predict_ahead - 1])
 
-    for player, grp in test_df.groupby(key_col):
-        if player not in scalers:
-            continue
-        feat_scaled = scalers[player]["X"].transform(grp[feature_cols].values)
-        targ_scaled = scalers[player]["y"].transform(grp[[target_col]].values).flatten()
-        date_arr = grp["game_date"].values
+        X = np.asarray(X_lst, dtype="float32")
+        y = np.asarray(y_lst, dtype="float32")
+        return (X, y) if is_train else (X, y, p_lst, d_lst)
 
-        for i in range(lookback, len(grp) - predict_ahead + 1):
-            X_te.append(feat_scaled[i - lookback : i])
-            y_te.append(targ_scaled[i + predict_ahead - 1])
-            players_test.append(player)
-            dates_test.append(date_arr[i + predict_ahead - 1])
+    X_train, y_train = build_sequences(train_df, is_train=True)
+    X_test, y_test, players_test, dates_test = build_sequences(test_df, is_train=False)
 
-    X_test = np.asarray(X_te, dtype=np.float32)
-    y_test = np.asarray(y_te, dtype=np.float32)
-
-    #################### testing ####################
-    assert X_train.shape[0] == y_train.shape[0]  # sequence/label parity
-    assert set(players_test).issubset(test_df.player_name)  # readable names
-    assert all(k in scalers for k in train_df.player_key.unique())  # scalers built
+    # ------------------------------------------------------------------ #
+    # 5. Quick sanity checks                                             #
+    # ------------------------------------------------------------------ #
+    assert X_train.shape[0] == y_train.shape[0]
+    assert set(players_test).issubset(scalers.keys())
 
     return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
 
@@ -474,7 +470,7 @@ def rolling_train_test_rnn(
                 train_df,
                 test_df,
                 target_platform=platform,
-                train_window=train_window,
+                lookback=train_window,
                 predict_ahead=predict_ahead,
                 use_standard_scaler=False,
             )
