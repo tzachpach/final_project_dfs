@@ -174,7 +174,7 @@ def add_last_season_data_with_extras(current_df, prev_df):
             stat_mapping = agg_data.set_index("player_name")[col]
             current_df[col] = current_df["player_name"].map(stat_mapping).fillna(0)
 
-    current_df = add_last_season_zscores(current_df)
+    # current_df = add_last_season_zscores(current_df)
     return current_df
 
 
@@ -202,8 +202,8 @@ def add_running_season_stats(df):
 
     # Predefine all new columns with zeros (more efficient than None)
     for cat in all_cats:
-        df[f"running_season_avg_{cat}"] = 0
-        df[f"running_season_total_{cat}"] = 0
+        df[f"running_season_avg_{cat}"] = 0.0
+        df[f"running_season_total_{cat}"] = 0.0
     df["running_season_games_played"] = 0
     df["running_season_double_doubles"] = 0
     df["running_season_triple_doubles"] = 0
