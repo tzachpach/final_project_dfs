@@ -196,6 +196,26 @@ def rolling_train_test_for_xgb(
     return results_df
 
 
+def player_key_to_name(player_key):
+    """
+    Convert a player_key (e.g., 'AARON_GORDON_ORL') back to the original player name (e.g., 'Aaron Gordon').
+    Args:
+        player_key (str): The player key in the format "FIRSTNAME_LASTNAME_TEAM"
+
+    Returns:
+        str: The player name in the format "Firstname Lastname"
+    """
+    # Split the player_key by underscores
+    parts = player_key.split("_")
+    # Take all parts except the last one (which is the team abbreviation)
+    name_parts = parts[:-1]
+    # Join these parts with spaces
+    uppercase_name = "_".join(name_parts)
+    # Replace underscores with spaces
+    player_name = uppercase_name.replace("_", " ")
+    return player_name
+
+
 def prepare_train_test_rnn_data(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
@@ -213,11 +233,9 @@ def prepare_train_test_rnn_data(
     # 0. Unique key – keep it ***consistent everywhere***                #
     # ------------------------------------------------------------------ #
     for df in (train_df, test_df):
-        df["player_key"] = (
-            df["player_name"].str.upper().str.replace(" ", "_")
-            + "_"
-            + df["team_abbreviation"].str.upper()
-        )  # “AARON_GORDON_ORL”
+        df.loc[:, "player_key"] = (
+            df["player_name"] + "_" + df["team_abbreviation"].str.upper()
+        )
 
     KEY = "player_key"
 
@@ -322,7 +340,6 @@ def prepare_train_test_rnn_data(
     # ------------------------------------------------------------------ #
     assert X_train.shape[0] == y_train.shape[0]
     assert set(players_test).issubset(scalers.keys())
-
     return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
 
 
@@ -342,7 +359,8 @@ def rolling_train_test_rnn(
     predict_ahead=1,
     platform="fanduel",
     step_size=1,
-    output_dir="output_csv",  # New parameter for output directory
+    output_dir="output_csv",
+    save_csv=True,
 ):
     """
     Minimal rolling approach:
@@ -408,6 +426,7 @@ def rolling_train_test_rnn(
                 step_size=step_size,
                 output_dir=output_dir,
                 quantile_label=quantile_label,
+                save_csv=False,
             )
             cat_result = cat_result.rename(
                 columns={"y_true": f"{cat}", "y_pred": f"{cat}_pred"}
@@ -526,7 +545,7 @@ def rolling_train_test_rnn(
 
     results_df = pd.DataFrame(
         {
-            "player_name": all_players,
+            "player_name": [player_key_to_name(p) for p in all_players],
             "game_date": all_dates,
             "y_true": all_trues,
             "y_pred": all_preds,
@@ -534,11 +553,10 @@ def rolling_train_test_rnn(
     )
 
     # Save single-target results
-    if not multi_target_mode:
+    if not multi_target_mode and save_csv:
         output_file = os.path.join(output_dir, f"fp_{platform}_{quantile_label}.csv")
         results_df.to_csv(output_file, index=False)
         print(f"Saved single-target results to {output_file}")
-
     return results_df
 
 

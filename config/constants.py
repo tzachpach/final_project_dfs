@@ -1,4 +1,7 @@
 import torch
+import pathlib
+
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 rolling_window = 10
 

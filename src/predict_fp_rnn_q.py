@@ -2,6 +2,7 @@ import pandas as pd
 import os
 from datetime import datetime
 
+from config.constants import PROJECT_ROOT
 from src.test_train_utils import rolling_train_test_rnn
 
 
@@ -63,9 +64,8 @@ def predict_fp_rnn_q(
     """
     # Create timestamped output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f"output_csv/rnn_{timestamp}"
-    os.makedirs(output_dir, exist_ok=True)
-
+    output_dir = PROJECT_ROOT / "output_csv" / f"rnn_{timestamp}"
+    output_dir.mkdir(parents=True, exist_ok=True)
     # Basic checks
     if mode not in ["daily", "weekly"]:
         raise ValueError("mode must be 'daily' or 'weekly'.")
@@ -125,6 +125,7 @@ def predict_fp_rnn_q(
             "game_id",
             "game_date",
             "minutes_played",
+            "team_abbreviation",
             "salary-fanduel",
             "salary-draftkings",
             "salary-yahoo",
@@ -134,7 +135,7 @@ def predict_fp_rnn_q(
         ]
         keep_cols = [c for c in keep_cols if c in bin_df.columns]
         df_lookup = bin_df[keep_cols].drop_duplicates(
-            subset=["player_name", "game_id", "game_date"]
+            subset=["player_name", "team_abbreviation", "game_id", "game_date"]
         )
 
         # Now rename the columns in results_df so we have "fp_<platform>" and "fp_<platform>_pred"
@@ -166,10 +167,6 @@ def predict_fp_rnn_q(
 
         # Add a bin_label column
         merged_df["_bin_label"] = bin_label
-
-        # Save bin-specific results
-        if not multi_target_mode:
-            return results_df
         return merged_df
 
     # We must have a 'salary_quantile' column
