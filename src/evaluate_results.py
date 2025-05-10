@@ -138,39 +138,73 @@ def evaluate_lineups_vs_contests(lineup_df, contests_df):
 
     merged = pd.merge(cdf, lineup_df, on="game_date", how="left")
     before_len = len(merged)
-    # drop duplicates
-    merged = merged[
-        (merged["fanduel_GT_duplicates"] == 0)
-        & (merged["fanduel_predicted_duplicates"] == 0)
+
+    # Find columns for various metrics by their suffixes
+    gt_dup_cols = [col for col in merged.columns if col.endswith("_GT_duplicates")]
+    pred_dup_cols = [
+        col for col in merged.columns if col.endswith("_predicted_duplicates")
     ]
+    gt_points_cols = [col for col in merged.columns if col.endswith("_GT_points")]
+    pred_lineup_gt_points_cols = [
+        col for col in merged.columns if col.endswith("_predicted_lineup_GT_points")
+    ]
+
+    # Use the first found columns or print a warning if not found
+    if gt_dup_cols and pred_dup_cols:
+        gt_dup_col = gt_dup_cols[0]
+        pred_dup_col = pred_dup_cols[0]
+        # drop duplicates
+        merged = merged[(merged[gt_dup_col] == 0) & (merged[pred_dup_col] == 0)]
+    else:
+        # If columns don't exist, don't filter
+        print(
+            f"Warning: Duplicate columns not found. Available columns: {merged.columns.tolist()}"
+        )
+
     dropped = before_len - len(merged)
+
+    # Get column names for points calculations
+    gt_points_col = gt_points_cols[0] if gt_points_cols else None
+    pred_lineup_gt_points_col = (
+        pred_lineup_gt_points_cols[0] if pred_lineup_gt_points_cols else None
+    )
+
+    if not gt_points_col or not pred_lineup_gt_points_col:
+        print(
+            f"Warning: Points columns not found. Available columns: {merged.columns.tolist()}"
+        )
+        # Return empty results if we can't calculate metrics
+        return {
+            "num_contests": 0,
+            "rows_dropped_dup": 0,
+            "pred_win_rate": np.nan,
+            "pred_cash_rate": np.nan,
+            "total_profit": 0.0,
+            "avg_profit": np.nan,
+        }
 
     # compute differences
     merged["winning_score_vs_pred"] = (
-        merged["winning_score"] - merged["fanduel_predicted_lineup_GT_points"]
+        merged["winning_score"] - merged[pred_lineup_gt_points_col]
     )
-    merged["winning_score_vs_gt"] = (
-        merged["winning_score"] - merged["fanduel_GT_points"]
-    )
+    merged["winning_score_vs_gt"] = merged["winning_score"] - merged[gt_points_col]
 
     merged["cash_line_vs_pred"] = (
-        merged["mincash_score"] - merged["fanduel_predicted_lineup_GT_points"]
+        merged["mincash_score"] - merged[pred_lineup_gt_points_col]
     )
-    merged["cash_line_vs_gt"] = merged["mincash_score"] - merged["fanduel_GT_points"]
+    merged["cash_line_vs_gt"] = merged["mincash_score"] - merged[gt_points_col]
 
     # booleans
     merged["pred_lineup_would_win"] = (
-        merged["fanduel_predicted_lineup_GT_points"] >= merged["winning_score"]
+        merged[pred_lineup_gt_points_col] >= merged["winning_score"]
     )
-    merged["actual_lineup_would_win"] = (
-        merged["fanduel_GT_points"] >= merged["winning_score"]
-    )
+    merged["actual_lineup_would_win"] = merged[gt_points_col] >= merged["winning_score"]
 
     merged["pred_lineup_would_cash"] = (
-        merged["fanduel_predicted_lineup_GT_points"] >= merged["mincash_score"]
+        merged[pred_lineup_gt_points_col] >= merged["mincash_score"]
     )
     merged["actual_lineup_would_cash"] = (
-        merged["fanduel_GT_points"] >= merged["mincash_score"]
+        merged[gt_points_col] >= merged["mincash_score"]
     )
 
     def compute_profit(row):
