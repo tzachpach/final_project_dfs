@@ -40,14 +40,17 @@ def preprocess_basic(df):
     return df
 
 
-def merge_all_seasons(data_path="data/"):
+def merge_all_seasons():
     """
     Merges all season files from the specified directory into a single DataFrame.
     Expects files matching 'merged_gamelogs_salaries_*.csv'.
     Performs initial concatenation and basic column cleanup.
     """
+    # Get the path to the data directory (one level up from src)
+    data_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+
     dfs_to_merge = [
-        pd.read_csv(os.path.join(data_path, f))
+        pd.read_csv(os.path.join(data_path, f), low_memory=False)
         for f in os.listdir(data_path)
         if "merged_gamelogs_salaries_" in f and f.endswith(".csv")
     ]
