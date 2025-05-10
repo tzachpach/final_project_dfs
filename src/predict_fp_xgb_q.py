@@ -2,6 +2,7 @@ import pandas as pd
 import os
 from datetime import datetime
 
+from config.constants import PROJECT_ROOT
 from config.dfs_categories import same_game_cols, dfs_cats
 from config.fantasy_point_calculation import (
     calculate_fp_fanduel,
@@ -59,7 +60,8 @@ def predict_fp_xgb_q(
     """
     # Create timestamped output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f"output_csv/xgb_{timestamp}"
+    output_dir = PROJECT_ROOT / "output_csv" / f"xgb_{timestamp}"
+    output_dir.mkdir(parents=True, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
     enriched_df = enriched_df.dropna(subset=["salary_quantile"])
@@ -110,7 +112,7 @@ def predict_fp_xgb_q(
                 group_by=group_col,
                 train_window=rolling_window,
                 save_model=save_model,
-                model_dir="models",
+                model_dir=f"{output_dir}\models",
                 xgb_param_dict=xgb_param_dict,
                 output_dir=output_dir,
                 quantile_label=bin_label,
@@ -199,8 +201,8 @@ def predict_fp_xgb_q(
     final_df = pd.concat(final_bin_dfs, ignore_index=True)
 
     # Save final combined results
-    final_output_file = os.path.join(output_dir, "final_fp_xgb.csv")
+    final_output_file = output_dir / f"fp_xgb_{bin_label}.csv"
     final_df.to_csv(final_output_file, index=False)
-    print(f"Saved final results to {final_output_file}")
+    print(f"Saved XGB bin results → {final_output_file}")
 
     return final_df
