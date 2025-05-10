@@ -128,7 +128,7 @@ def get_lineup(df):
     return pd.DataFrame(date_res)
 
 
-def get_best_lineup(date, df, platform="fanduel", pred_flag=False):
+def get_best_lineup(date, df, platform="fanduel", pred_flag=False, use_ilp=False):
     df_filtered = df[df["game_date"] == date].reset_index(drop=True)
     salary_cap = salary_constraints[platform]["salary_cap"]
     position_constraints = salary_constraints[platform]["positions"]
