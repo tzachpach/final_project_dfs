@@ -25,7 +25,7 @@ model_configs = [
         "model_type": "RNN",
         "rnn_type": ["LSTM"],
         # Mode toggle (2)
-        "mode": ["daily", "weekly"],
+        "mode": ["weekly"],
         # Look‑back / window (1 each)
         "train_window_days": [15],  # used in daily mode
         "train_window_weeks": [4],  # used in weekly mode
@@ -42,7 +42,7 @@ model_configs = [
         "dropout_rate": [0.2],
         "epochs": [15],
         "batch_size": [32],
-        "multi_target_mode": [True, False],
+        "multi_target_mode": [False, True],
         "predict_ahead": [1],
     },
 ]
