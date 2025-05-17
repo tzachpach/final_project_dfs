@@ -111,130 +111,86 @@ def compute_percentile_metrics(
     return df_percentiles
 
 
-def evaluate_lineups_vs_contests(lineup_df, contests_df):
+def evaluate_lineups_vs_contests(
+    lineup_df: pd.DataFrame,
+    contests_df: pd.DataFrame,
+    solver_prefixes=("ga", "ilp", "pulp"),
+    platform: str = "fanduel",
+):
     """
-    Merges lineup data with contests, calculates a few contest metrics:
-      - pred win rate
-      - pred cash rate
-      - total profit
-    Returns a dict with these summary metrics.
+    Compare (GA / ILP / PULP …) line-ups with contest results *per solver*.
+
+    Returns
+    -------
+    dict flat { '<solver>_<kpi>': value, ... } + a few global counters
     """
-    # We rename columns if needed
+
+    # ── 1 . Pre-clean  ─────────────────────────────────────────────
     contests_df = contests_df.rename(columns={"period": "game_date"}).copy()
     lineup_df = lineup_df.rename(columns={"date": "game_date"}).copy()
 
-    # basic filtering
-    valid_titles = ["Main", "After Hours", "Express"]
-    cdf = contests_df[contests_df["Title"].isin(valid_titles)]
-    cdf = cdf[cdf["total_entrants"] > 50]
-    cdf = cdf[cdf["cost"] >= 1]
-
-    # ensure datetime
+    valid = ["Main", "After Hours", "Express"]
+    cdf = contests_df[contests_df["Title"].isin(valid)].loc[
+        lambda d: (d["total_entrants"] > 50) & (d["cost"] >= 1)
+    ]
     cdf["game_date"] = pd.to_datetime(cdf["game_date"])
     lineup_df["game_date"] = pd.to_datetime(lineup_df["game_date"])
 
-    # keep only contests that match lineup dates
-    cdf = cdf[cdf["game_date"].isin(lineup_df["game_date"])]
-
-    merged = pd.merge(cdf, lineup_df, on="game_date", how="left")
-    before_len = len(merged)
-
-    # Find columns for various metrics by their suffixes
-    gt_dup_cols = [col for col in merged.columns if col.endswith("_GT_duplicates")]
-    pred_dup_cols = [
-        col for col in merged.columns if col.endswith("_predicted_duplicates")
-    ]
-    gt_points_cols = [col for col in merged.columns if col.endswith("_GT_points")]
-    pred_lineup_gt_points_cols = [
-        col for col in merged.columns if col.endswith("_predicted_lineup_GT_points")
-    ]
-
-    # Use the first found columns or print a warning if not found
-    if gt_dup_cols and pred_dup_cols:
-        gt_dup_col = gt_dup_cols[0]
-        pred_dup_col = pred_dup_cols[0]
-        # drop duplicates
-        merged = merged[(merged[gt_dup_col] == 0) & (merged[pred_dup_col] == 0)]
-    else:
-        # If columns don't exist, don't filter
-        print(
-            f"Warning: Duplicate columns not found. Available columns: {merged.columns.tolist()}"
-        )
-
-    dropped = before_len - len(merged)
-
-    # Get column names for points calculations
-    gt_points_col = gt_points_cols[0] if gt_points_cols else None
-    pred_lineup_gt_points_col = (
-        pred_lineup_gt_points_cols[0] if pred_lineup_gt_points_cols else None
+    merged = pd.merge(
+        cdf[cdf["game_date"].isin(lineup_df["game_date"])],
+        lineup_df,
+        on="game_date",
+        how="left",
     )
 
-    if not gt_points_col or not pred_lineup_gt_points_col:
-        print(
-            f"Warning: Points columns not found. Available columns: {merged.columns.tolist()}"
-        )
-        # Return empty results if we can't calculate metrics
-        return {
-            "num_contests": 0,
-            "rows_dropped_dup": 0,
-            "pred_win_rate": np.nan,
-            "pred_cash_rate": np.nan,
-            "total_profit": 0.0,
-            "avg_profit": np.nan,
+    out = {}
+    out["num_contests_raw"] = len(merged)
+    total_dup_dropped = 0
+
+    # ── 2 .  Iterate over every requested solver  ─────────────────
+    for pref in solver_prefixes:
+        pfx = f"{pref}_{platform}"
+        cols_needed = {
+            "gt_dup": f"{pfx}_GT_duplicates",
+            "pd_dup": f"{pfx}_predicted_duplicates",
+            "gt_pts": f"{pfx}_GT_points",
+            "pd_pts": f"{pfx}_predicted_lineup_GT_points",
         }
+        if not all(c in merged.columns for c in cols_needed.values()):
+            # nothing logged for this solver → skip
+            continue
 
-    # compute differences
-    merged["winning_score_vs_pred"] = (
-        merged["winning_score"] - merged[pred_lineup_gt_points_col]
-    )
-    merged["winning_score_vs_gt"] = merged["winning_score"] - merged[gt_points_col]
+        # --- filter duplicate line-ups for *this* solver
+        df = merged[
+            (merged[cols_needed["gt_dup"]] == 0) & (merged[cols_needed["pd_dup"]] == 0)
+        ].copy()
+        total_dup_dropped += len(merged) - len(df)
 
-    merged["cash_line_vs_pred"] = (
-        merged["mincash_score"] - merged[pred_lineup_gt_points_col]
-    )
-    merged["cash_line_vs_gt"] = merged["mincash_score"] - merged[gt_points_col]
+        if df.empty:
+            for k in ("pred_win_rate", "pred_cash_rate", "total_profit", "avg_profit"):
+                out[f"{pref}_{k}"] = np.nan
+            continue
 
-    # booleans
-    merged["pred_lineup_would_win"] = (
-        merged[pred_lineup_gt_points_col] >= merged["winning_score"]
-    )
-    merged["actual_lineup_would_win"] = merged[gt_points_col] >= merged["winning_score"]
+        # --- metrics
+        df["pred_lineup_would_win"] = df[cols_needed["pd_pts"]] >= df["winning_score"]
+        df["pred_lineup_would_cash"] = df[cols_needed["pd_pts"]] >= df["mincash_score"]
 
-    merged["pred_lineup_would_cash"] = (
-        merged[pred_lineup_gt_points_col] >= merged["mincash_score"]
-    )
-    merged["actual_lineup_would_cash"] = (
-        merged[gt_points_col] >= merged["mincash_score"]
-    )
-
-    def compute_profit(row):
-        if row["pred_lineup_would_win"]:
-            return row["winning_payout"] - row["cost"]
-        elif row["pred_lineup_would_cash"]:
-            return row["mincash_payout"] - row["cost"]
-        else:
+        def _profit(row):
+            if row["pred_lineup_would_win"]:
+                return row["winning_payout"] - row["cost"]
+            if row["pred_lineup_would_cash"]:
+                return row["mincash_payout"] - row["cost"]
             return -row["cost"]
 
-    merged["pred_lineup_profit"] = merged.apply(compute_profit, axis=1)
+        df["pred_lineup_profit"] = df.apply(_profit, axis=1)
 
-    num_contests = len(merged)
-    pred_win_rate = (
-        merged["pred_lineup_would_win"].mean() if num_contests > 0 else np.nan
-    )
-    pred_cash_rate = (
-        merged["pred_lineup_would_cash"].mean() if num_contests > 0 else np.nan
-    )
-    total_profit = merged["pred_lineup_profit"].sum() if num_contests > 0 else 0.0
-    avg_profit = merged["pred_lineup_profit"].mean() if num_contests > 0 else np.nan
+        out[f"{pref}_pred_win_rate"] = df["pred_lineup_would_win"].mean()
+        out[f"{pref}_pred_cash_rate"] = df["pred_lineup_would_cash"].mean()
+        out[f"{pref}_total_profit"] = df["pred_lineup_profit"].sum()
+        out[f"{pref}_avg_profit"] = df["pred_lineup_profit"].mean()
 
-    return {
-        "num_contests": num_contests,
-        "rows_dropped_dup": dropped,
-        "pred_win_rate": pred_win_rate,
-        "pred_cash_rate": pred_cash_rate,
-        "total_profit": total_profit,
-        "avg_profit": avg_profit,
-    }
+    out["rows_dropped_dup"] = total_dup_dropped
+    return out
 
 
 def compute_shap_importances(model_pickle_path, df_sample, n_top=10):
