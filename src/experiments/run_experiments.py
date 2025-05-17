@@ -1,11 +1,15 @@
 import os
 import time
+import uuid
+from pathlib import Path
+from urllib.parse import urlparse
+
 import mlflow
 import pandas as pd
 
 from config.helpers import get_predictions_df, get_lineup
 from src.experiments.grid import iter_cfgs
-from src.experiments.ml_utils import start_run, log_cfg
+from src.experiments.ml_utils import log_cfg
 from src.evaluate_results import evaluate_results
 from config.pipelines import preprocess_pipeline, enrich_pipeline
 
@@ -27,35 +31,48 @@ contests = pd.read_csv(
     )
 )
 
-# ── iterate grid ───────────────────────────────────────────────
-for cfg in iter_cfgs():
+
+def run_one_cfg(cfg):
     try:
-        with start_run(cfg):
-            try:
-                # Set the run name
-                log_cfg(cfg)
+        # Set the run name
+        log_cfg(cfg)
 
-                t0 = time.time()
-                preds = get_predictions_df(cfg, enriched)
+        t0 = time.time()
+        preds = get_predictions_df(cfg, enriched)
+        if preds.empty:
+            mlflow.log_metric("skip_empty", 1)
+            print(f"Empty predictions for {cfg['run_name']}. Skipping.")
+            return
 
-                if preds.empty:
-                    mlflow.log_metric("skip_empty", 1)
-                    continue
+        lineup = get_lineup(preds)
+        kpis, pct = evaluate_results(preds, lineup, contests)
 
-                lineup = get_lineup(preds)
-                kpis, pct = evaluate_results(preds, lineup, contests)
+        clean_kpis = {k: (v if pd.notna(v) else -1.0) for k, v in kpis.items()}
+        mlflow.log_metrics(clean_kpis)
+        mlflow.log_metric("runtime_sec", round(time.time() - t0, 2))
 
-                mlflow.log_metrics(kpis)
-                mlflow.log_metric("runtime_sec", round(time.time() - t0, 2))
+        run_dir = Path(urlparse(mlflow.get_artifact_uri()).path)
+        run_dir.mkdir(parents=True, exist_ok=True)
 
-                out_csv = f'artifacts/{cfg["run_name"]}_percentiles.csv'
-                pct.to_csv(out_csv, index=False)
+        # save artefacts
+        pct_path = run_dir / f"{cfg['run_name']}_{uuid.uuid4().hex[:6]}_percentiles.csv"
+        pct.to_csv(pct_path, index=False)
+        mlflow.log_artifact(pct_path)
 
-                try:
-                    mlflow.log_artifact(out_csv)
-                except Exception as e:
-                    print(f"Error logging artifact: {e}")
-            except Exception as e:
-                print(f"Error in run {cfg.get('run_name', 'unknown')}: {e}")
+        kpi_path = run_dir / f"{cfg['run_name']}_kpis.csv"
+        pd.DataFrame([clean_kpis]).to_csv(kpi_path, index=False)
+        mlflow.log_artifact(kpi_path)
+
     except Exception as e:
-        print(f"Error starting run for config {cfg.get('run_name', 'unknown')}: {e}")
+        print(f"Error in run {cfg.get('run_name', 'unknown')}: {e}")
+
+
+for cfg in iter_cfgs():
+    mlflow.start_run(run_name=cfg["run_name"])
+    try:
+        run_one_cfg(cfg)
+    except Exception as e:
+        print(f"Run {cfg['run_name']} crashed: {e}")
+        mlflow.set_tag("run_status", "failed")
+    finally:
+        mlflow.end_run()
