@@ -6,7 +6,6 @@ from ortools.linear_solver import pywraplp
 from deap import base, creator, tools, algorithms
 from config.constants import salary_constraints
 from pulp import LpProblem, LpMaximize, LpVariable, lpSum, LpBinary, PULP_CBC_CMD
-from mip import Model, xsum, BINARY, MAX
 
 
 # ---------------------------------------------------------------- GA (unchanged)
@@ -14,7 +13,10 @@ def solve_ga(df_sl: pd.DataFrame, platform: str, pred_flag: bool) -> List[int]:
     cap = salary_constraints[platform]["salary_cap"]
     pos_req = salary_constraints[platform]["positions"]
     roster = sum(pos_req.values())
-
+    # Check if we have enough players for a valid roster
+    if len(df_sl) < roster:
+        # Not enough players to form a roster
+        return []
     if not hasattr(creator, "FitnessMax"):
         creator.create("FitnessMax", base.Fitness, weights=(1.0,))
     if not hasattr(creator, "Individual"):
@@ -28,10 +30,10 @@ def solve_ga(df_sl: pd.DataFrame, platform: str, pred_flag: bool) -> List[int]:
     pred_col = f"fp_{platform}_pred" if pred_flag else f"fp_{platform}"
 
     def feasible(idx_list):
-        sal_ok = df_sl.loc[idx_list, f"{platform}_salary"].sum() <= cap
+        sal_ok = sum(df_sl.iloc[i][f"{platform}_salary"] for i in idx_list) <= cap
         pos_cnt = {k: 0 for k in pos_req}
         for i in idx_list:
-            tokens = str(df_sl.at[i, f"{platform}_position"]).split("/")
+            tokens = str(df_sl.iloc[i][f"{platform}_position"]).split("/")
             for t in tokens:
                 if t in pos_cnt:
                     pos_cnt[t] += 1
@@ -155,44 +157,45 @@ def solve_pulp(df, plat="fanduel", pred=True):
     return [i for i, var in x.items() if var.value()]
 
 
-def solve_mip(df, plat="fanduel", pred=True):
-    try:
-        # Check if CBC library is available
-        from mip.cbc import has_cbc
-
-        if not has_cbc:
-            raise ImportError("CBC library not available")
-
-        m = Model(sense=MAX, solver_name="CBC")
-        x = [m.add_var(var_type=BINARY) for _ in df.index]
-        fp_col = f"fp_{plat}_pred" if pred else f"fp_{plat}"
-        m.objective = xsum(df.at[i, fp_col] * x[i] for i in df.index)
-
-        # Add salary constraint
-        cap = salary_constraints[plat]["salary_cap"]
-        m += xsum(df.at[i, f"{plat}_salary"] * x[i] for i in range(len(df))) <= cap
-
-        # Add roster size constraint
-        pos_req = salary_constraints[plat]["positions"]
-        roster_size = sum(pos_req.values())
-        m += xsum(x) == roster_size
-
-        # Add position constraints
-        for pos, k in pos_req.items():
-            if pos == "UTIL":
-                continue
-            m += (
-                xsum(
-                    x[i]
-                    for i in range(len(df))
-                    if pos in str(df.at[i, f"{plat}_position"]).split("/")
-                )
-                >= k
-            )
-
-        m.optimize(max_seconds=30)
-        return [i for i, v in enumerate(x) if v.x >= 0.99]
-    except ImportError as e:
-        raise RuntimeError(f"MIP solver failed: {str(e)}")
-    except Exception as e:
-        raise RuntimeError(f"MIP solver failed: {str(e)}")
+#
+# def solve_mip(df, plat="fanduel", pred=True):
+#     try:
+#         # Check if CBC library is available
+#         from mip.cbc import has_cbc
+#
+#         if not has_cbc:
+#             raise ImportError("CBC library not available")
+#
+#         m = Model(sense=MAX, solver_name="CBC")
+#         x = [m.add_var(var_type=BINARY) for _ in df.index]
+#         fp_col = f"fp_{plat}_pred" if pred else f"fp_{plat}"
+#         m.objective = xsum(df.at[i, fp_col] * x[i] for i in df.index)
+#
+#         # Add salary constraint
+#         cap = salary_constraints[plat]["salary_cap"]
+#         m += xsum(df.at[i, f"{plat}_salary"] * x[i] for i in range(len(df))) <= cap
+#
+#         # Add roster size constraint
+#         pos_req = salary_constraints[plat]["positions"]
+#         roster_size = sum(pos_req.values())
+#         m += xsum(x) == roster_size
+#
+#         # Add position constraints
+#         for pos, k in pos_req.items():
+#             if pos == "UTIL":
+#                 continue
+#             m += (
+#                 xsum(
+#                     x[i]
+#                     for i in range(len(df))
+#                     if pos in str(df.at[i, f"{plat}_position"]).split("/")
+#                 )
+#                 >= k
+#             )
+#
+#         m.optimize(max_seconds=30)
+#         return [i for i, v in enumerate(x) if v.x >= 0.99]
+#     except ImportError as e:
+#         raise RuntimeError(f"MIP solver failed: {str(e)}")
+#     except Exception as e:
+#         raise RuntimeError(f"MIP solver failed: {str(e)}")

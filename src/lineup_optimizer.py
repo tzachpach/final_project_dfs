@@ -1,8 +1,11 @@
 import logging
 from typing import List, Sequence, Tuple
+
+import numpy as np
 import pandas as pd
 
-from src.lineup_solvers import solve_ga, solve_ilp, solve_pulp, solve_mip
+from config.constants import salary_constraints
+from src.lineup_solvers import solve_ga, solve_ilp, solve_pulp  # , solve_mip
 
 log = logging.getLogger(__name__)
 
@@ -14,7 +17,7 @@ _SOLVER_MAP = {
     "GA": solve_ga,
     "ILP": solve_ilp,
     "PULP": solve_pulp,
-    "MIP": solve_mip,
+    # "MIP": solve_mip,
 }
 
 
@@ -46,6 +49,26 @@ def get_best_lineup(
         log.warning("No rows for date %s; returning empty lineup.", date)
         return df_day, []
 
+    need = [
+        f"{platform}_salary",
+        f"fp_{platform}",
+        f"fp_{platform}_pred",
+        f"{platform}_position",
+    ]
+    df_day = df_day.dropna(subset=need)
+    df_day = df_day.replace([np.inf, -np.inf], np.nan).dropna(subset=need)
+
+    # Check if we have enough players for a valid roster
+    roster_size = sum(salary_constraints[platform]["positions"].values())
+    if len(df_day) < roster_size:
+        log.warning(
+            "Not enough players (%d) for a full roster (%d) on %s",
+            len(df_day),
+            roster_size,
+            date,
+        )
+        return df_day, []
+
     for name in _as_sequence(solver):
         if name not in _SOLVER_MAP:
             log.warning("Unknown solver '%s' – skipping.", name)
@@ -61,6 +84,5 @@ def get_best_lineup(
         except Exception as e:
             log.warning("Solver %s failed: %s – trying next.", name, e)
 
-    # All solvers failed
     log.error("All solvers failed for date %s / %s.", date, platform)
     return df_day, []

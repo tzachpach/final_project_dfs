@@ -59,7 +59,7 @@ def get_predictions_df(cfg, enriched_df):
     return pd.DataFrame()
 
 
-def get_lineup(df, solvers=("GA", "ILP", "MIP", "PULP")):
+def get_lineup(df, solvers=("GA", "ILP", "PULP")):
     """
     solvers: tuple/list like ("GA",) or ("GA","ILP")
     """
@@ -67,68 +67,113 @@ def get_lineup(df, solvers=("GA", "ILP", "MIP", "PULP")):
     out_rows = []
 
     for date in df["game_date"].unique():
+        if date == "2017-11-21":
+            # Skip this date for now
+            continue
         row = {"date": date}
         logging.info(f"Solving {date} with solvers={solvers}")
         for platform in ["fanduel"]:
             for solver in solvers:
-                df_g, idx_gt = get_best_lineup(date, df, platform, False, solver)
-                df_g, idx = get_best_lineup(
-                    date, df, "fanduel", pred_flag=True, solver=["ILP", "GA"]
-                )
-                if not idx:
-                    mlflow.log_metric("lineup_missing", 1)
+                try:
+                    # Get ground truth lineup
+                    df_gt, idx_gt = get_best_lineup(date, df, platform, False, solver)
+                    if not idx_gt:
+                        logging.warning(
+                            f"No ground truth lineup for {date}/{platform} with {solver}"
+                        )
+                        continue
+
+                    # Get predicted lineup
+                    df_pred, idx_pred = get_best_lineup(
+                        date, df, platform, True, solver
+                    )
+                    if not idx_pred:
+                        logging.warning(
+                            f"No predicted lineup for {date}/{platform} with {solver}"
+                        )
+                        mlflow.log_metric("lineup_missing", 1)
+                        continue
+
+                    # Make sure indices exist in both DataFrames
+                    valid_gt_idx = [i for i in idx_gt if i in df_gt.index]
+                    valid_pred_idx = [i for i in idx_pred if i in df_pred.index]
+
+                    if not valid_gt_idx or not valid_pred_idx:
+                        logging.warning(
+                            f"No valid indices for {date}/{platform} with {solver}"
+                        )
+                        continue
+
+                    # Use the valid indices for all operations
+                    prefix = f"{solver.lower()}_{platform}"
+                    row.update(
+                        {
+                            f"{prefix}_player_pool_count": len(df_gt),
+                            f"{prefix}_GT_players": df_gt.loc[
+                                valid_gt_idx, "player_name"
+                            ].tolist(),
+                            f"{prefix}_predicted_players": df_pred.loc[
+                                valid_pred_idx, "player_name"
+                            ].tolist(),
+                            f"{prefix}_GT_points": df_gt.loc[
+                                valid_gt_idx, f"fp_{platform}"
+                            ].sum(),
+                            f"{prefix}_predicted_points": df_pred.loc[
+                                valid_pred_idx, f"fp_{platform}_pred"
+                            ].sum(),
+                            f"{prefix}_predicted_lineup_GT_points": df_gt.loc[
+                                valid_pred_idx, f"fp_{platform}"
+                            ].sum(),
+                            f"{prefix}_GT_lineup_predicted_points": df_gt.loc[
+                                valid_gt_idx, f"fp_{platform}_pred"
+                            ].sum(),
+                            f"{prefix}_GT_salary": df_gt.loc[
+                                valid_gt_idx, f"{platform}_salary"
+                            ].sum(),
+                            f"{prefix}_predicted_salary": df_pred.loc[
+                                valid_pred_idx, f"{platform}_salary"
+                            ].sum(),
+                            f"{prefix}_GT_duplicates": len(valid_gt_idx)
+                            - len(np.unique(valid_gt_idx)),
+                            f"{prefix}_predicted_duplicates": len(valid_pred_idx)
+                            - len(np.unique(valid_pred_idx)),
+                        }
+                    )
+
+                    # overlap metrics - use valid indices
+                    overlap = set(valid_gt_idx) & set(valid_pred_idx)
+                    if overlap:
+                        row.update(
+                            {
+                                f"{prefix}_overlap_players": df_gt.loc[
+                                    list(overlap), "player_name"
+                                ].tolist(),
+                                f"{prefix}_overlap_count": len(overlap),
+                                f"{prefix}_overlap_GT_points": df_gt.loc[
+                                    list(overlap), f"fp_{platform}"
+                                ].sum(),
+                                f"{prefix}_overlap_predicted_points": df_pred.loc[
+                                    list(overlap), f"fp_{platform}_pred"
+                                ].sum(),
+                            }
+                        )
+                    else:
+                        row.update(
+                            {
+                                f"{prefix}_overlap_players": [],
+                                f"{prefix}_overlap_count": 0,
+                                f"{prefix}_overlap_GT_points": 0,
+                                f"{prefix}_overlap_predicted_points": 0,
+                            }
+                        )
+                except Exception as e:
+                    # Add detailed logging to track exactly when errors occur
+                    logging.error(
+                        f"Error processing {date}/{platform} with {solver}: {e}"
+                    )
+                    # Skip this solver and continue with the next one
                     continue
 
-                df_p, idx_pred = get_best_lineup(date, df, platform, True, solver)
-
-                prefix = f"{solver.lower()}_{platform}"
-                row.update(
-                    {
-                        f"{prefix}_player_pool_count": len(df_g),
-                        f"{prefix}_GT_players": df_g.loc[
-                            idx_gt, "player_name"
-                        ].tolist(),
-                        f"{prefix}_predicted_players": df_p.loc[
-                            idx_pred, "player_name"
-                        ].tolist(),
-                        f"{prefix}_GT_points": df_g.loc[idx_gt, f"fp_{platform}"].sum(),
-                        f"{prefix}_predicted_points": df_p.loc[
-                            idx_pred, f"fp_{platform}_pred"
-                        ].sum(),
-                        f"{prefix}_predicted_lineup_GT_points": df_g.loc[
-                            idx_pred, f"fp_{platform}"
-                        ].sum(),
-                        f"{prefix}_GT_lineup_predicted_points": df_g.loc[
-                            idx_gt, f"fp_{platform}_pred"
-                        ].sum(),
-                        f"{prefix}_GT_salary": df_g.loc[
-                            idx_gt, f"{platform}_salary"
-                        ].sum(),
-                        f"{prefix}_predicted_salary": df_p.loc[
-                            idx_pred, f"{platform}_salary"
-                        ].sum(),
-                        f"{prefix}_GT_duplicates": len(idx_gt) - len(np.unique(idx_gt)),
-                        f"{prefix}_predicted_duplicates": len(idx_pred)
-                        - len(np.unique(idx_pred)),
-                    }
-                )
-
-                # overlap metrics
-                overlap = set(idx_gt) & set(idx_pred)
-                row.update(
-                    {
-                        f"{prefix}_overlap_players": df_g.loc[
-                            list(overlap), "player_name"
-                        ].tolist(),
-                        f"{prefix}_overlap_count": len(overlap),
-                        f"{prefix}_overlap_GT_points": df_g.loc[
-                            list(overlap), f"fp_{platform}"
-                        ].sum(),
-                        f"{prefix}_overlap_predicted_points": df_p.loc[
-                            list(overlap), f"fp_{platform}_pred"
-                        ].sum(),
-                    }
-                )
         out_rows.append(row)
 
     return pd.DataFrame(out_rows)
