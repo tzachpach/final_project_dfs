@@ -4,18 +4,18 @@ model_configs = [
         "model_type": "XGBoost",
         # ── DFS salary‑bin strategies (2) ────────────────────────────────
         "thresholds": [
-            [0.90, 0.60, 0.00],  # top‑10 % / mid‑30 % / rest
-            [0.75, 0.00],  # top‑25 % / rest
+            [0.90, 0.60, 0.00],  # top‑10% / mid‑30% / rest
+            [0.75, 0.00],  # top‑25% / rest
         ],
         # ── Mode toggle (2) ──────────────────────────────────────────────
-        "mode": ["daily", "weekly"],  # ← both evaluated
+        "mode": ["weekly", "daily"],  # ← both evaluated
         # Look‑back windows (1 each → they do **not** multiply)
-        "train_window_days": [20],  # used only when mode == "daily"
-        "train_window_weeks": [4],  # used only when mode == "weekly"
+        "train_window_days": [30],  # used only when mode == "daily"
+        "train_window_weeks": [6],  # used only when mode == "weekly"
         "save_model": [True],
         # ── Booster depth / LR pairs (2) ─────────────────────────────────
         "xgb_params": [
-            {},  # baseline (depth‑6, η 0.3)
+            {},  # baseline (depth‑6, η0.3)
             {"max_depth": 5, "eta": 0.05},  # deeper, slower LR
         ],
         "model_dir": ["models"],
@@ -27,7 +27,7 @@ model_configs = [
         # Mode toggle (2)
         "mode": ["weekly"],
         # Look‑back / window (1 each)
-        "train_window_days": [15],  # used in daily mode
+        "train_window_days": [30],  # used in daily mode
         "train_window_weeks": [4],  # used in weekly mode
         # Network capacity grid: hidden size (1) × layers (2) = 2
         "hidden_size": [64],
