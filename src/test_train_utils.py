@@ -13,6 +13,7 @@ from torch import nn, optim
 from config.constants import select_device
 from config.dfs_categories import dfs_cats, same_game_cols
 from config.fantasy_point_calculation import calculate_fp_fanduel
+from config.feature_engineering import reduce_features
 
 
 def rolling_train_test_for_xgb(
@@ -79,16 +80,16 @@ def rolling_train_test_for_xgb(
 
         # Training data: all data in the rolling window
         X_train = X[X["group_col"].isin(training_groups)].copy()
-        y_train = y.loc[X_train.index]
+        y_train = y.loc[X_train.index].reset_index(drop=True)
 
         # Test data: data for the current group
         X_test = X[X["group_col"] == current_group].copy()
-        y_test = y.loc[X_test.index]
+        y_test = y.loc[X_test.index].reset_index(drop=True)
 
         if X_train.empty or X_test.empty:
             continue
 
-        # Drop non-numeric columns before model training
+        # Drop redundant columns before model training
         X_train = X_train.drop(columns=["game_date", "group_col"]).reset_index(
             drop=True
         )
@@ -106,6 +107,19 @@ def rolling_train_test_for_xgb(
         identifying_test_data = df[df["group_col"] == current_group][
             ["player_name", "game_date", "game_id", "minutes_played"]
         ].drop_duplicates()
+
+        reduced = reduce_features(X_train, y_train)
+
+        # cat_cols is your predefined list
+        cols_to_keep = list(
+            dict.fromkeys(
+                reduced
+                + [c for c in cat_cols if c in X_train]
+                + [c for c in X_train if "pos-" in c or "salary" in c]
+            )
+        )
+        X_train = X_train[cols_to_keep]
+        X_test = X_test[cols_to_keep]
 
         # Create DMatrix for training and testing
         dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
@@ -276,7 +290,7 @@ def prepare_train_test_rnn_data(
     ]
 
     # ------------------------------------------------------------------ #
-    # 2. One‑hot encode (train​→​freeze design matrix​→​align test)        #
+    # 2. One‑hot encode (train->freeze design matrix→align test)        #
     # ------------------------------------------------------------------ #
     train_df = pd.get_dummies(train_df, columns=CAT_COLS, drop_first=True)
     DESIGN = train_df.columns  # frozen
@@ -295,6 +309,16 @@ def prepare_train_test_rnn_data(
     )
     test_df[feature_cols] = test_df[feature_cols].apply(pd.to_numeric).astype("float32")
 
+    # reduce features to only those that are relevant for training
+    reduced_feature_cols = reduce_features(
+        train_df[feature_cols], train_df[target_col]  # X_train  # y_train
+    )
+    reduced_feature_cols = reduced_feature_cols + [
+        c for c in train_df if "pos-" in c or "salary" in c
+    ]
+
+    assert not (set(reduced_feature_cols) & set(same_game_cols))
+
     # ------------------------------------------------------------------ #
     # 3. Per‑player scalers (skip players with <2 rows)                  #
     # ------------------------------------------------------------------ #
@@ -304,7 +328,7 @@ def prepare_train_test_rnn_data(
     for k, grp in train_df.groupby(KEY):
         if len(grp) < 2:  # can’t scale a singleton
             continue
-        Xs = grp[feature_cols].values
+        Xs = grp[reduced_feature_cols].values
         ys = grp[[target_col]].values
         scalers[k] = {"X": scaler_cls().fit(Xs), "y": scaler_cls().fit(ys)}
 
@@ -317,7 +341,7 @@ def prepare_train_test_rnn_data(
         for k, grp in source_df.groupby(KEY):
             if k not in scalers:  # unseen in train
                 continue
-            feat = scalers[k]["X"].transform(grp[feature_cols].values)
+            feat = scalers[k]["X"].transform(grp[reduced_feature_cols].values)
             targ = scalers[k]["y"].transform(grp[[target_col]].values).flatten()
             dates = grp["game_date"].values
 
