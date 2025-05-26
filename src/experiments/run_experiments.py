@@ -45,6 +45,7 @@ def run_one_cfg(cfg):
             return
 
         lineup = get_lineup(preds)
+
         kpis, pct = evaluate_results(preds, lineup, contests)
 
         clean_kpis = {k: (v if pd.notna(v) else -1.0) for k, v in kpis.items()}
@@ -53,6 +54,9 @@ def run_one_cfg(cfg):
 
         run_dir = Path(urlparse(mlflow.get_artifact_uri()).path)
         run_dir.mkdir(parents=True, exist_ok=True)
+
+        lineup_path = run_dir / f"{cfg['run_name']}_{uuid.uuid4().hex[:6]}_lineup.csv"
+        lineup.to_csv(lineup_path, index=False)
 
         # save artefacts
         pct_path = run_dir / f"{cfg['run_name']}_{uuid.uuid4().hex[:6]}_percentiles.csv"
