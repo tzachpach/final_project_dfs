@@ -22,6 +22,7 @@ def predict_fp_rnn_q(
     multi_target_mode: bool,
     predict_ahead: int,
     step_size: int,
+    reduce_features_flag: bool,
     platform: str = "fanduel",
 ):
     """
@@ -112,7 +113,8 @@ def predict_fp_rnn_q(
             platform=platform,
             step_size=step_size,
             quantile_label=bin_label,
-            output_dir=output_dir,  # Pass output directory for saving
+            output_dir=output_dir,
+            reduce_features_flag=reduce_features_flag,
         )
 
         if results_df.empty:

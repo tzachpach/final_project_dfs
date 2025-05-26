@@ -1,6 +1,7 @@
 import os
 import pickle
 from functools import reduce
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,38 +14,25 @@ from torch import nn, optim
 from config.constants import select_device
 from config.dfs_categories import dfs_cats, same_game_cols
 from config.fantasy_point_calculation import calculate_fp_fanduel
-from config.feature_engineering import reduce_features
+from config.feature_engineering import fit_feature_reducer, apply_feature_reducer
 
 
 def rolling_train_test_for_xgb(
     X,
     y,
     df,
-    group_by,
-    train_window,
-    save_model,
-    model_dir,
+    group_by: str,
+    train_window: int,
+    save_model: bool,
+    model_dir: str,
+    reduce_features_flag: bool,
     xgb_param_dict=None,
     output_dir=None,
     quantile_label=None,
 ):
-    """
-    Rolling train-test function for both daily and weekly training, based on a grouping parameter.
-
-    Args:
-        X (pd.DataFrame): Feature DataFrame.
-        y (pd.Series): Target variable.
-        df (pd.DataFrame): Original DataFrame containing game metadata.
-        group_by (str): "date" for daily predictions or "week" for weekly predictions.
-        train_window (int): Number of previous groups (days/weeks) to use for training.
-        save_model (bool): Whether to save the trained models.
-        model_dir (str): Directory to save models.
-
-    Returns:
-        pd.DataFrame: DataFrame containing predictions, actual values, and metadata.
-    """
     os.makedirs(model_dir, exist_ok=True)
 
+    # ---------------- group-col construction --------------
     if group_by == "date":
         X["group_col"] = X["game_date"]
         df["group_col"] = df["game_date"]
@@ -57,7 +45,7 @@ def rolling_train_test_for_xgb(
 
     unique_groups = sorted(X["group_col"].unique())
 
-    # Initialize lists to store results
+    # ---------------- bookkeeping -------------------------
     all_predictions, all_true_values = [], []
     all_game_ids, all_game_dates, all_player_names, all_minutes_played = [], [], [], []
     all_fanduel_salaries, all_draftkings_salaries, all_yahoo_salaries = [], [], []
@@ -73,29 +61,26 @@ def rolling_train_test_for_xgb(
         "season_year",
     ]
 
-    # Loop over groups with a rolling window
+    # ---------------- rolling window loop -----------------------------
     for idx in range(train_window, len(unique_groups)):
         current_group = unique_groups[idx]
         training_groups = unique_groups[idx - train_window : idx]
 
-        # Training data: all data in the rolling window
         X_train = X[X["group_col"].isin(training_groups)].copy()
         y_train = y.loc[X_train.index].reset_index(drop=True)
 
-        # Test data: data for the current group
         X_test = X[X["group_col"] == current_group].copy()
         y_test = y.loc[X_test.index].reset_index(drop=True)
 
         if X_train.empty or X_test.empty:
             continue
 
-        # Drop redundant columns before model training
+        # -- drop helper cols, cast dtypes --------------------------------
         X_train = X_train.drop(columns=["game_date", "group_col"]).reset_index(
             drop=True
         )
         X_test = X_test.drop(columns=["game_date", "group_col"]).reset_index(drop=True)
 
-        # Ensure categorical columns are of type 'category'
         for col in X_train.columns:
             if col in cat_cols:
                 X_train[col] = X_train[col].astype("category")
@@ -104,88 +89,80 @@ def rolling_train_test_for_xgb(
                 X_train[col] = pd.to_numeric(X_train[col], errors="coerce")
                 X_test[col] = pd.to_numeric(X_test[col], errors="coerce")
 
-        identifying_test_data = df[df["group_col"] == current_group][
+        # -- ***feature reduction*** --------------------------------------
+        if reduce_features_flag:
+            transf, aux_cols = fit_feature_reducer(  # fit on train only
+                X_train,
+                y_train,
+                mode=reduce_features_flag,
+                keep_ratio=0.70,
+                cap=300,
+            )
+            # always keep categories & salary cols
+            aux_cols.extend([c for c in cat_cols if c in X_train])
+            aux_cols = list(dict.fromkeys(aux_cols))  # dedupe
+
+            X_train = apply_feature_reducer(X_train, transf, aux_cols)
+            X_test = apply_feature_reducer(X_test, transf, aux_cols)
+        # else: keep original X_train / X_test
+
+        # -- IDs for later -------------------------------------------------
+        ids = df[df["group_col"] == current_group][
             ["player_name", "game_date", "game_id", "minutes_played"]
         ].drop_duplicates()
 
-        reduced = reduce_features(X_train, y_train)
-
-        # cat_cols is your predefined list
-        cols_to_keep = list(
-            dict.fromkeys(
-                reduced
-                + [c for c in cat_cols if c in X_train]
-                + [c for c in X_train if "pos-" in c or "salary" in c]
-            )
-        )
-        X_train = X_train[cols_to_keep]
-        X_test = X_test[cols_to_keep]
-
-        # Create DMatrix for training and testing
+        # -- XGBoost -------------------------------------------------------
         dtrain = xgb.DMatrix(X_train, label=y_train, enable_categorical=True)
         dtest = xgb.DMatrix(X_test, label=y_test, enable_categorical=True)
 
-        # Model parameters
         params = {
             "objective": "reg:squarederror",
-            "tree_method": "hist",  # use "gpu_hist" on a GPU box
+            "tree_method": "hist",
             "enable_categorical": True,
         }
+        if xgb_param_dict:
+            params.update(
+                {
+                    k: v
+                    for k, v in xgb_param_dict.items()
+                    if k not in ("num_boost_round", "n_estimators")
+                }
+            )
 
-        # --- user overrides ---
-        if xgb_param_dict:  # None or {}
-            # all keys except those that belong to the booster loop length
-            non_round_keys = {
-                k: v
-                for k, v in xgb_param_dict.items()
-                if k not in ("num_boost_round", "n_estimators")
-            }
-            params.update(non_round_keys)
-
-        num_rounds = (
-            xgb_param_dict.get("num_boost_round")
-            or xgb_param_dict.get("n_estimators")
-            or 100  # ← previous implicit default
+        n_rounds = (
+            (xgb_param_dict or {}).get("num_boost_round")
+            or (xgb_param_dict or {}).get("n_estimators")
+            or 100
         )
 
-        # Train the model
-        model = xgb.train(params, dtrain, num_boost_round=num_rounds)
-
-        # Make predictions
+        model = xgb.train(params, dtrain, num_boost_round=n_rounds)
         y_pred = model.predict(dtest)
 
-        # Store predictions and metadata
+        # -- bookkeeping ---------------------------------------------------
         all_predictions.extend(y_pred.tolist())
-        all_true_values.extend(y_test.tolist())  # Ensure list format
-        all_game_ids.extend(identifying_test_data["game_id"].tolist())
-        all_game_dates.extend(identifying_test_data["game_date"].tolist())
-        all_player_names.extend(identifying_test_data["player_name"].tolist())
-        all_minutes_played.extend(identifying_test_data["minutes_played"].tolist())
-        all_fanduel_salaries.extend(X_test["salary-fanduel"].tolist())
-        all_draftkings_salaries.extend(X_test["salary-draftkings"].tolist())
-        all_yahoo_salaries.extend(X_test["salary-yahoo"].tolist())
-        all_fanduel_positions.extend(X_test["pos-fanduel"].tolist())
-        all_draftkings_positions.extend(X_test["pos-draftkings"].tolist())
-        all_yahoo_positions.extend(X_test["pos-yahoo"].tolist())
+        all_true_values.extend(y_test.tolist())
+        all_game_ids.extend(ids["game_id"])
+        all_game_dates.extend(ids["game_date"])
+        all_player_names.extend(ids["player_name"])
+        all_minutes_played.extend(ids["minutes_played"])
+        all_fanduel_salaries.extend(X_test["salary-fanduel"])
+        all_draftkings_salaries.extend(X_test["salary-draftkings"])
+        all_yahoo_salaries.extend(X_test["salary-yahoo"])
+        all_fanduel_positions.extend(X_test["pos-fanduel"])
+        all_draftkings_positions.extend(X_test["pos-draftkings"])
+        all_yahoo_positions.extend(X_test["pos-yahoo"])
 
-        # Save the model if requested
         if save_model:
-            model_filename = f"{model_dir}/model_{group_by}_{current_group}.pkl"
-            with open(model_filename, "wb") as file:
-                pickle.dump(model, file)
+            model_path = f"{model_dir}/model_{group_by}_{current_group}.pkl"
+            with open(model_path, "wb") as f:
+                pickle.dump(model, f)
 
-        # Calculate evaluation metrics
         mse = mean_squared_error(y_test, y_pred)
         rmse = np.sqrt(mse)
         r2 = r2_score(y_test, y_pred)
+        print(f"[{group_by}={current_group}]  RMSE={rmse:.2f}  R²={r2:.2f}")
 
-        print(f"Training up to {group_by}: {current_group}")
-        print(f"Mean Squared Error (MSE): {mse:.2f}")
-        print(f"Root Mean Squared Error (RMSE): {rmse:.2f}")
-        print(f"R-squared (R²): {r2:.2f}")
-        print("")
-
-    # Compile results into a DataFrame
+    # ---------------- assemble output -----------------------------------
     results_df = pd.DataFrame(
         {
             "player_name": all_player_names,
@@ -202,10 +179,12 @@ def rolling_train_test_for_xgb(
             "yahoo_position": all_yahoo_positions,
         }
     )
+
     if output_dir and quantile_label:
-        fname = f"fp_xgb_{quantile_label}.csv"
-        results_df.to_csv(os.path.join(output_dir, fname), index=False)
-        print(f"Saved XGB intermediate results → {fname}")
+        out = Path(output_dir) / f"fp_xgb_{quantile_label}.csv"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        results_df.to_csv(out, index=False)
+        print(f"Saved XGB intermediate results → {out}")
 
     return results_df
 
@@ -233,43 +212,51 @@ def player_key_to_name(player_key):
 def prepare_train_test_rnn_data(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
-    target_platform="fanduel",
-    lookback=15,
-    predict_ahead=1,
-    use_standard_scaler=False,
+    reduce_features_flag,
+    target_platform: str = "fanduel",
+    lookback: int = 15,
+    predict_ahead: int = 1,
+    use_standard_scaler: bool = False,
 ):
     """
-    Return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
-    with *per‑player* scaling, and no same‑game leakage.
+    Build train / test tensors for the RNN with per-player scaling
+    and (optionally) numeric feature reduction.
+
+    Returns
+    -------
+    X_train, y_train, X_test, y_test, players_test, dates_test, scalers
     """
 
-    # ------------------------------------------------------------------ #
-    # 0. Unique key – keep it ***consistent everywhere***                #
-    # ------------------------------------------------------------------ #
+    # 0) stable player key -------------------------------------------------
     for df in (train_df, test_df):
-        df.loc[:, "player_key"] = (
-            df["player_name"] + "_" + df["team_abbreviation"].str.upper()
-        )
-
+        df["player_key"] = df["player_name"] + "_" + df["team_abbreviation"].str.upper()
     KEY = "player_key"
 
-    # ------------------------------------------------------------------ #
-    # 1. Sort & target column                                            #
-    # ------------------------------------------------------------------ #
+    # 1) sort + target column --------------------------------------------
     train_df = train_df.sort_values([KEY, "game_date"]).reset_index(drop=True)
     test_df = test_df.sort_values([KEY, "game_date"]).reset_index(drop=True)
 
     target_col = (
         target_platform
         if target_platform in train_df.columns
-        else (
-            f"fp_{target_platform}"
-            if f"fp_{target_platform}" in train_df.columns
-            else ValueError(f"{target_platform} not found")
-        )
+        else f"fp_{target_platform}"
+    )
+    if target_col not in train_df.columns:
+        raise ValueError(f"column “{target_col}” not found")
+
+    # 2) one-hot categorical columns --------------------------------------
+    CAT = [
+        c
+        for c in train_df.columns
+        if "pos-" in c or c in ("team_abbreviation", "opponent_abbr")
+    ]
+    train_df = pd.get_dummies(train_df, columns=CAT, drop_first=True)
+    DESIGN = train_df.columns  # frozen
+    test_df = pd.get_dummies(test_df, columns=CAT, drop_first=True).reindex(
+        columns=DESIGN, fill_value=0
     )
 
-    # columns never to feed to the net
+    # 3) numeric feature set (raw) ---------------------------------------
     EXCLUDE = {
         "player_name",
         KEY,
@@ -282,88 +269,72 @@ def prepare_train_test_rnn_data(
         "fp_fanduel",
         "fp_yahoo",
     }
+    NUM_FEATS = [c for c in DESIGN if c not in EXCLUDE and c not in same_game_cols]
 
-    CAT_COLS = [
-        c
-        for c in train_df.columns
-        if "pos-" in c or c in ("team_abbreviation", "opponent_abbr")
-    ]
+    # 4) fit / apply reducer (optional) -----------------------------------
+    if reduce_features_flag is False:
+        red_train = train_df[NUM_FEATS]
+        red_test = test_df[NUM_FEATS]
+    else:
+        transf, aux_cols = fit_feature_reducer(
+            X_train=train_df[NUM_FEATS],
+            y_train=train_df[target_col],
+            mode=reduce_features_flag,  # "Kbest", "PCA", …
+            keep_ratio=0.70,
+            cap=300,
+        )
+        # always append pos-/salary columns
+        aux_cols += [c for c in DESIGN if ("pos-" in c or "salary" in c)]
+        aux_cols = list(dict.fromkeys(aux_cols))  # dedupe
 
-    # ------------------------------------------------------------------ #
-    # 2. One‑hot encode (train->freeze design matrix→align test)        #
-    # ------------------------------------------------------------------ #
-    train_df = pd.get_dummies(train_df, columns=CAT_COLS, drop_first=True)
-    DESIGN = train_df.columns  # frozen
+        red_train = apply_feature_reducer(train_df, transf, aux_cols)
+        red_test = apply_feature_reducer(test_df, transf, aux_cols)
 
-    test_df = pd.get_dummies(test_df, columns=CAT_COLS, drop_first=True).reindex(
-        columns=DESIGN, fill_value=0
-    )
+    FEATS = red_train.columns.tolist()
+    assert not (set(FEATS) & set(same_game_cols))
 
-    # final feature set
-    feature_cols = [c for c in DESIGN if c not in EXCLUDE and c not in same_game_cols]
-    assert not (set(feature_cols) & set(same_game_cols))
-
-    # make everything numeric *once*
-    train_df[feature_cols] = (
-        train_df[feature_cols].apply(pd.to_numeric).astype("float32")
-    )
-    test_df[feature_cols] = test_df[feature_cols].apply(pd.to_numeric).astype("float32")
-
-    # reduce features to only those that are relevant for training
-    reduced_feature_cols = reduce_features(
-        train_df[feature_cols], train_df[target_col]  # X_train  # y_train
-    )
-    reduced_feature_cols = reduced_feature_cols + [
-        c for c in train_df if "pos-" in c or "salary" in c
-    ]
-
-    assert not (set(reduced_feature_cols) & set(same_game_cols))
-
-    # ------------------------------------------------------------------ #
-    # 3. Per‑player scalers (skip players with <2 rows)                  #
-    # ------------------------------------------------------------------ #
+    # 5) per-player scalers ----------------------------------------------
     scaler_cls = StandardScaler if use_standard_scaler else MinMaxScaler
     scalers = {}
-
     for k, grp in train_df.groupby(KEY):
-        if len(grp) < 2:  # can’t scale a singleton
+        if len(grp) < 2:  # cannot scale a singleton
             continue
-        Xs = grp[reduced_feature_cols].values
-        ys = grp[[target_col]].values
-        scalers[k] = {"X": scaler_cls().fit(Xs), "y": scaler_cls().fit(ys)}
+        scalers[k] = {
+            "X": scaler_cls().fit(red_train.loc[grp.index, FEATS]),
+            "y": scaler_cls().fit(grp[[target_col]].values),
+        }
 
-    # ------------------------------------------------------------------ #
-    # 4. Build sequences helper                                          #
-    # ------------------------------------------------------------------ #
-    def build_sequences(source_df, is_train: bool):
-        X_lst, y_lst, p_lst, d_lst = [], [], [], []
+    # 6) sequence builder -------------------------------------------------
+    def build_sequences(source_idx, is_train: bool):
+        X_l, y_l, p_l, d_l = [], [], [], []
+        df_here = train_df if is_train else test_df
+        red_here = red_train if is_train else red_test
 
-        for k, grp in source_df.groupby(KEY):
+        for k, grp in df_here.groupby(KEY):
             if k not in scalers:  # unseen in train
                 continue
-            feat = scalers[k]["X"].transform(grp[reduced_feature_cols].values)
-            targ = scalers[k]["y"].transform(grp[[target_col]].values).flatten()
+            X_scaled = scalers[k]["X"].transform(red_here.loc[grp.index, FEATS])
+            y_scaled = scalers[k]["y"].transform(grp[[target_col]].values).flatten()
             dates = grp["game_date"].values
 
             for i in range(lookback, len(grp) - predict_ahead + 1):
-                X_lst.append(feat[i - lookback : i])
-                y_lst.append(targ[i + predict_ahead - 1])
+                X_l.append(X_scaled[i - lookback : i])
+                y_l.append(y_scaled[i + predict_ahead - 1])
                 if not is_train:
-                    p_lst.append(k)
-                    d_lst.append(dates[i + predict_ahead - 1])
+                    p_l.append(k)
+                    d_l.append(dates[i + predict_ahead - 1])
 
-        X = np.asarray(X_lst, dtype="float32")
-        y = np.asarray(y_lst, dtype="float32")
-        return (X, y) if is_train else (X, y, p_lst, d_lst)
+        X_arr = np.asarray(X_l, dtype="float32")
+        y_arr = np.asarray(y_l, dtype="float32")
+        return (X_arr, y_arr) if is_train else (X_arr, y_arr, p_l, d_l)
 
-    X_train, y_train = build_sequences(train_df, is_train=True)
-    X_test, y_test, players_test, dates_test = build_sequences(test_df, is_train=False)
+    X_train, y_train = build_sequences(train_df.index, True)
+    X_test, y_test, players_test, dates_test = build_sequences(test_df.index, False)
 
-    # ------------------------------------------------------------------ #
-    # 5. Quick sanity checks                                             #
-    # ------------------------------------------------------------------ #
+    # 7) sanity checks ----------------------------------------------------
     assert X_train.shape[0] == y_train.shape[0]
     assert set(players_test).issubset(scalers.keys())
+
     return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
 
 
@@ -379,6 +350,7 @@ def rolling_train_test_rnn(
     rnn_type,
     multi_target_mode,
     quantile_label,
+    reduce_features_flag,
     group_by="week",
     predict_ahead=1,
     platform="fanduel",
@@ -450,6 +422,7 @@ def rolling_train_test_rnn(
                 step_size=step_size,
                 output_dir=output_dir,
                 quantile_label=quantile_label,
+                reduce_features_flag=reduce_features_flag,
                 save_csv=False,
             )
             cat_result = cat_result.rename(
@@ -516,6 +489,7 @@ def rolling_train_test_rnn(
                 lookback=train_window,
                 predict_ahead=predict_ahead,
                 use_standard_scaler=False,
+                reduce_features_flag=reduce_features_flag,
             )
         )
 

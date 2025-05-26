@@ -20,6 +20,7 @@ def predict_fp_xgb_q(
     salary_thresholds=None,
     save_model=True,
     xgb_param_dict=None,
+    reduce_features_flag=False,
 ):
     """
     Creates multiple sub-DataFrames based on a descending list of salary quantile thresholds,
@@ -116,6 +117,7 @@ def predict_fp_xgb_q(
                 xgb_param_dict=xgb_param_dict,
                 output_dir=output_dir,
                 quantile_label=bin_label,
+                reduce_features_flag=reduce_features_flag,
             )
 
             cat_results.rename(
