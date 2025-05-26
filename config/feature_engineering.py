@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectKBest, mutual_info_regression
 
@@ -33,45 +34,82 @@ class RollingScaler(BaseEstimator, TransformerMixin):
         return X
 
 
-def reduce_features(
+def fit_feature_reducer(
     X_train: pd.DataFrame,
     y_train,
+    *,
+    mode,  # 'Kbest' | 'PCA' | None | False
     keep_ratio: float = 0.70,
-    cap: int = 100,
-    corr_thresh: float = 0.9,
-) -> list[str]:
+    cap: int = 300,
+    corr_thresh: float = 0.95,
+):
     """
-    1.  Keep only numeric cols.
-    2.  Drop rows that have NaN in X *or* y  (index is ignored → no KeyError).
-    3.  Optional correlation filter: for any pair |ρ| ≥ corr_thresh
-        keep the first and drop the others.
-    4.  Rank remaining cols with mutual-information and keep top-k
-        where k = ceil(keep_ratio · n_cols) capped at `cap`.
-
-    Returns
-    -------
-    list[str]   names of the selected numeric features
+    Learn which columns / PCA projection to keep on *training data only*.
+    Returns:
+        transf : ('cols', list[str]) | ('pca', fitted_PCA)
+        aux    : list[str]   #   'pos-' + 'salary' columns to bolt back on
     """
-    # ---------- 1. numeric slice -----------------------------------------
+    if not mode:
+        return ("cols", X_train.columns.tolist()), []
+    # --- numeric & NA mask --------------------------------------------
     X_num = X_train.select_dtypes(include="number")
-    if X_num.shape[1] == 0:
-        raise ValueError("No numeric columns to select from.")
-
-    # ---------- 2. drop rows with NaNs -----------------------------------
     y_arr = np.asarray(y_train).ravel()
-    valid_mask = (~np.isnan(X_num).any(axis=1)) & (~np.isnan(y_arr))
-    X_num = X_num.loc[valid_mask].reset_index(drop=True)
-    y_arr = y_arr[valid_mask]
+    mask = (~np.isnan(X_num).any(axis=1)) & (~np.isnan(y_arr))
+    X_num = X_num.loc[mask]
+    y_arr = y_arr[mask]
 
-    # ---------- 3. correlation pruning  ----------------------------------
-    if corr_thresh < 1.0:
-        corr = X_num.corr(method="spearman").abs()  # robust for funky dists
-        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-        to_drop = [col for col in upper.columns if (upper[col] >= corr_thresh).any()]
-        X_num = X_num.drop(columns=to_drop)
+    # --- correlation filter ------------------------------------------
+    if corr_thresh < 1.0 and X_num.shape[1] > 1:
+        c = X_num.corr("spearman").abs()
+        upper = c.where(np.triu(np.ones(c.shape), 1).astype(bool))
+        drop = [col for col in upper.columns if (upper[col] >= corr_thresh).any()]
+        X_num = X_num.drop(columns=drop)
 
-    # ---------- 4. MI ranking  ------------------------------------------
-    k = min(cap, max(1, int(np.ceil(keep_ratio * X_num.shape[1]))))
-    selector = SelectKBest(mutual_info_regression, k=k).fit(X_num, y_arr)
+    # --- choose transformer ------------------------------------------
+    if mode == "PCA":
+        n_comp = max(1, int(0.30 * X_num.shape[1]))
+        transf = ("pca", PCA(n_components=n_comp).fit(X_num))
+    elif mode == "Kbest":
+        k = min(cap, max(1, int(np.ceil(keep_ratio * X_num.shape[1]))))
+        skb = SelectKBest(mutual_info_regression, k=k).fit(X_num, y_arr)
+        cols = X_num.columns[skb.get_support()].tolist()
+        transf = ("cols", cols)
+    else:  # mode is False ➜ keep everything numeric
+        transf = ("cols", X_num.columns.tolist())
 
-    return list(X_num.columns[selector.get_support()])
+    aux_cols = [c for c in X_train.columns if ("pos-" in c) or ("salary" in c)]
+    return transf, aux_cols
+
+
+def apply_feature_reducer(
+    X: pd.DataFrame,
+    transf,
+    aux_cols: list[str],
+) -> pd.DataFrame:
+    """
+    Project / select on *any* dataframe using the fitted transformer.
+    Keeps original row-order; rows that could not be transformed
+    (because they had NaNs in numeric cols) are filled with NaNs.
+    """
+    kind, obj = transf  # ('pca', fitted_PCA) | ('cols', list)
+    if kind == "pca":
+        # ── select numeric subset expected by PCA ───────────────────────
+        X_num = X.select_dtypes(include="number")[obj.feature_names_in_]
+        good_mask = ~X_num.isna().any(axis=1)
+
+        # initialise empty frame (all-NaN) with full index
+        pca_cols = [f"pca_{i+1}" for i in range(obj.n_components_)]
+        X_red = pd.DataFrame(np.nan, index=X.index, columns=pca_cols)
+
+        # run PCA only on valid rows, write back into correct positions
+        X_red.loc[good_mask, :] = obj.transform(X_num.loc[good_mask])
+
+    else:  # kind == 'cols'
+        X_red = X[obj].copy()
+
+    # ── bolt the always-keep columns back on (pos-* / salary) ────────────
+    for c in aux_cols:
+        if c not in X_red:  # avoid accidental overwrite
+            X_red[c] = X[c].values
+
+    return X_red
