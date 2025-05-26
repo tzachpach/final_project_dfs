@@ -8,65 +8,95 @@ from config.constants import salary_constraints
 from pulp import LpProblem, LpMaximize, LpVariable, lpSum, LpBinary, PULP_CBC_CMD
 
 
-# ---------------------------------------------------------------- GA (unchanged)
+# ---------------------------------------------------------------- GA
 def solve_ga(df_sl: pd.DataFrame, platform: str, pred_flag: bool) -> List[int]:
     cap = salary_constraints[platform]["salary_cap"]
-    pos_req = salary_constraints[platform]["positions"]
-    roster = sum(pos_req.values())
-    # Check if we have enough players for a valid roster
-    if len(df_sl) < roster:
-        # Not enough players to form a roster
+    pos_req = salary_constraints[platform][
+        "positions"
+    ]  # e.g. {'PG':2,'SG':2,'G':1,'F':1,'C':1}
+    roster_sz = sum(pos_req.values())
+
+    if len(df_sl) < roster_sz:  # not enough players in the pool
         return []
+
+    # ------------------------------------------------------------------
+    # 1.  DEAP primitive registration (created once per interpreter)   -
+    # ------------------------------------------------------------------
     if not hasattr(creator, "FitnessMax"):
         creator.create("FitnessMax", base.Fitness, weights=(1.0,))
     if not hasattr(creator, "Individual"):
         creator.create("Individual", list, fitness=creator.FitnessMax)
 
     tb = base.Toolbox()
-    tb.register("indices", random.sample, range(len(df_sl)), roster)
+    tb.register("indices", random.sample, range(len(df_sl)), roster_sz)
     tb.register("individual", tools.initIterate, creator.Individual, tb.indices)
     tb.register("population", tools.initRepeat, list, tb.individual)
 
-    pred_col = f"fp_{platform}_pred" if pred_flag else f"fp_{platform}"
+    score_col = f"fp_{platform}_pred" if pred_flag else f"fp_{platform}"
 
-    def feasible(idx_list):
-        sal_ok = sum(df_sl.iloc[i][f"{platform}_salary"] for i in idx_list) <= cap
-        pos_cnt = {k: 0 for k in pos_req}
-        for i in idx_list:
-            tokens = str(df_sl.iloc[i][f"{platform}_position"]).split("/")
-            for t in tokens:
-                if t in pos_cnt:
-                    pos_cnt[t] += 1
-                if t in ("PG", "SG") and "G" in pos_cnt:
-                    pos_cnt["G"] += 1
-                if t in ("SF", "PF") and "F" in pos_cnt:
-                    pos_cnt["F"] += 1
-        pos_ok = all(pos_cnt[p] == v for p, v in pos_req.items() if p != "UTIL")
-        return sal_ok and pos_ok and len(set(idx_list)) == roster
+    # ------------------------------------------------------------------
+    # 2.  Helpers                                                       -
+    # ------------------------------------------------------------------
+    def salary_ok(ind):
+        return sum(df_sl.iloc[i][f"{platform}_salary"] for i in ind) <= cap
+
+    def pos_ok(ind):
+        cnt = {k: 0 for k in pos_req}  # fresh counter
+        for i in ind:
+            slots = str(df_sl.iloc[i][f"{platform}_position"]).split("/")
+            for s in slots:
+                if s in cnt:
+                    cnt[s] += 1
+            # derive the flex slots once per player
+            if ("PG" in slots or "SG" in slots) and "G" in cnt:
+                cnt["G"] += 1
+            if ("SF" in slots or "PF" in slots) and "F" in cnt:
+                cnt["F"] += 1
+        # **≥** not **==**  → roster may over-satisfy a slot (UTIL absorbs it)
+        return all(cnt[p] >= need for p, need in pos_req.items() if p != "UTIL")
 
     def fitness(ind):
-        return (
-            (sum(df_sl.iloc[i][pred_col] for i in ind),) if feasible(ind) else (-1e6,)
-        )
+        if (len(set(ind)) != roster_sz) or (not salary_ok(ind)) or (not pos_ok(ind)):
+            return (-1e6,)  # make it undesirable
+        return (sum(df_sl.iloc[i][score_col] for i in ind),)
 
     tb.register("evaluate", fitness)
     tb.register("mate", tools.cxTwoPoint)
 
     def mutate(ind):
-        if random.random() < 0.2:
-            replace = random.choice(ind)
-            new_idx = random.randrange(len(df_sl))
-            while new_idx in ind:
-                new_idx = random.randrange(len(df_sl))
-            ind[ind.index(replace)] = new_idx
+        # simple “replace one player” mutation
+        idx = random.randrange(roster_sz)
+        new = random.randrange(len(df_sl))
+        while new in ind:
+            new = random.randrange(len(df_sl))
+        ind[idx] = new
         return (ind,)
 
     tb.register("mutate", mutate)
     tb.register("select", tools.selTournament, tournsize=3)
 
-    pop = tb.population(n=min(50, len(df_sl)))
-    algorithms.eaSimple(pop, tb, 0.5, 0.2, 10, verbose=False)
-    return tools.selBest(pop, 1)[0]
+    # ------------------------------------------------------------------
+    # 3.  Run GA                                                        -
+    # ------------------------------------------------------------------
+    pop = tb.population(n=min(200, len(df_sl)))  # larger search space
+    hof = tools.HallOfFame(1)  # keep best ever
+    stats = tools.Statistics(lambda ind: ind.fitness.values[0])
+    stats.register("max", max)
+
+    algorithms.eaSimple(
+        pop,
+        tb,
+        cxpb=0.7,
+        mutpb=0.2,
+        ngen=40,
+        stats=stats,
+        halloffame=hof,
+        verbose=False,
+    )
+
+    best = hof[0] if hof else []
+    # final safety check (could all be infeasible)
+    return best if best and fitness(best)[0] > -1e5 else []
 
 
 # ---------------------------------------------------------------- ILP
@@ -119,7 +149,7 @@ def solve_ilp(df_sl: pd.DataFrame, platform: str, pred_flag: bool) -> List[int]:
         )
 
     # give CBC a gentle time limit (seconds)
-    solver.SetTimeLimit(10_000)
+    solver.SetTimeLimit(1_000_000)
 
     status = solver.Solve()
     if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
