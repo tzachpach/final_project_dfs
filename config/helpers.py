@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import mlflow
 
+from config.constants import salary_constraints
 from src.lineup_optimizer import get_best_lineup
 from src.predict_fp_rnn_q import predict_fp_rnn_q
 from src.predict_fp_xgb_q import predict_fp_xgb_q
@@ -27,6 +28,7 @@ def get_predictions_df(cfg, enriched_df):
             salary_thresholds=cfg.get("salary_thresholds", [0.9, 0.6, 0.0]),
             save_model=cfg.get("save_model", True),
             xgb_param_dict=cfg.get("xgb_param_dict", {}),
+            reduce_features_flag=cfg.get("reduce_features_flag"),
         )
 
         return predictions
@@ -37,9 +39,8 @@ def get_predictions_df(cfg, enriched_df):
         predictions = predict_fp_rnn_q(
             enriched_df,
             mode=cfg.get("mode", "daily"),
-            # train_window_days=cfg.get("train_window_days", 30),
-            train_window_weeks=cfg.get("train_window_weeks", 4),
             train_window_days=cfg.get("train_window_days", 12),
+            train_window_weeks=cfg.get("train_window_weeks", 4),
             salary_thresholds=cfg.get("salary_thresholds", [0.0]),
             hidden_size=cfg.get("hidden_size", 128),
             num_layers=cfg.get("num_layers", 1),
@@ -51,6 +52,7 @@ def get_predictions_df(cfg, enriched_df):
             multi_target_mode=cfg.get("multi_target_mode", False),
             predict_ahead=cfg.get("predict_ahead", 1),
             step_size=cfg.get("step_size", 1),
+            reduce_features_flag=cfg.get("reduce_features_flag", True),
             platform=cfg.get("platform", "fanduel"),
         )
         return predictions
@@ -67,8 +69,48 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
     out_rows = []
 
     for date in df["game_date"].unique():
-        if date == "2017-11-21":
-            # Skip this date for now
+        # check that there are enough players for a full roster, given positional constraints
+        df_date = df[df["game_date"] == date]
+        insufficient_positions = []
+        for platform in ["fanduel"]:
+            pos_req = salary_constraints[platform]["positions"]
+            roster_size = sum(pos_req.values())
+
+            # Check if we have enough players overall
+            if len(df_date) < roster_size:
+                logging.warning(
+                    f"Not enough players ({len(df_date)}) for a full roster ({roster_size}) on {date}"
+                )
+                continue
+
+            # Check if we have enough players for each position
+            position_counts = {pos: 0 for pos in pos_req}
+            position_column = f"{platform}_position"
+
+            for _, player in df_date.iterrows():
+                if pd.isna(player[position_column]):
+                    continue
+                positions = str(player[position_column]).split("/")
+                for pos in positions:
+                    if pos in position_counts:
+                        position_counts[pos] += 1
+                    # Handle special positions G and F
+                    if pos in ("PG", "SG") and "G" in position_counts:
+                        position_counts["G"] += 1
+                    if pos in ("SF", "PF") and "F" in position_counts:
+                        position_counts["F"] += 1
+
+            # Check if each position has enough players
+            for pos, required in pos_req.items():
+                if pos == "UTIL":  # UTIL can be any position
+                    continue
+                if position_counts.get(pos, 0) < required + 3:
+                    insufficient_positions.append(pos)
+
+        if insufficient_positions:
+            logging.warning(
+                f"Not enough players for positions {insufficient_positions} on {date}"
+            )
             continue
         row = {"date": date}
         logging.info(f"Solving {date} with solvers={solvers}")
