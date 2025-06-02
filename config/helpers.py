@@ -29,6 +29,7 @@ def get_predictions_df(cfg, enriched_df):
             save_model=cfg.get("save_model", True),
             xgb_param_dict=cfg.get("xgb_param_dict", {}),
             reduce_features_flag=cfg.get("reduce_features_flag"),
+            multi_target_mode=cfg.get("multi_target_mode", False),
         )
 
         return predictions

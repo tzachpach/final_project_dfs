@@ -21,6 +21,7 @@ def predict_fp_xgb_q(
     save_model=True,
     xgb_param_dict=None,
     reduce_features_flag=False,
+    multi_target_mode=False,
 ):
     """
     Creates multiple sub-DataFrames based on a descending list of salary quantile thresholds,
@@ -101,7 +102,8 @@ def predict_fp_xgb_q(
         features = df_bin.columns.difference(same_game_cols).tolist()
 
         print(f"\n=== Training bin '{bin_label}' with {len(df_bin)} rows. ===")
-        for cat in dfs_cats:
+        pred_cats = ["fp_fanduel"] if not multi_target_mode else dfs_cats
+        for cat in pred_cats:
             X = df_bin[features]
             y = df_bin[cat]
             # If rolling_train_test_for_xgb can handle xgb_param_dict, pass it in.
@@ -110,6 +112,7 @@ def predict_fp_xgb_q(
                 X,
                 y,
                 df_bin,
+                cat,
                 group_by=group_col,
                 train_window=rolling_window,
                 save_model=save_model,
@@ -120,9 +123,10 @@ def predict_fp_xgb_q(
                 reduce_features_flag=reduce_features_flag,
             )
 
-            cat_results.rename(
-                columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True
-            )
+            if multi_target_mode:
+                cat_results.rename(
+                    columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True
+                )
 
             if combined_df.empty:
                 combined_df = cat_results
@@ -147,21 +151,22 @@ def predict_fp_xgb_q(
                 )
 
         # Now compute final fantasy points
-        combined_df["fp_fanduel_pred"] = combined_df.apply(
-            lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1
-        )
-        combined_df["fp_yahoo_pred"] = combined_df.apply(
-            lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1
-        )
-        combined_df["fp_draftkings_pred"] = combined_df.apply(
-            lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1
-        )
+        if multi_target_mode:
+            combined_df["fp_fanduel_pred"] = combined_df.apply(
+                lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1
+            )
+            combined_df["fp_yahoo_pred"] = combined_df.apply(
+                lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1
+            )
+            combined_df["fp_draftkings_pred"] = combined_df.apply(
+                lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1
+            )
 
-        combined_df["fp_fanduel"] = combined_df.apply(calculate_fp_fanduel, axis=1)
-        combined_df["fp_yahoo"] = combined_df.apply(calculate_fp_yahoo, axis=1)
-        combined_df["fp_draftkings"] = combined_df.apply(
-            calculate_fp_draftkings, axis=1
-        )
+            combined_df["fp_fanduel"] = combined_df.apply(calculate_fp_fanduel, axis=1)
+            combined_df["fp_yahoo"] = combined_df.apply(calculate_fp_yahoo, axis=1)
+            combined_df["fp_draftkings"] = combined_df.apply(
+                calculate_fp_draftkings, axis=1
+            )
 
         # Optionally add a column indicating the bin label
         combined_df["_bin_label"] = bin_label
