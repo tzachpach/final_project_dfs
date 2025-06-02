@@ -21,6 +21,7 @@ def rolling_train_test_for_xgb(
     X,
     y,
     df,
+    cat,
     group_by: str,
     train_window: int,
     save_model: bool,
@@ -181,7 +182,7 @@ def rolling_train_test_for_xgb(
     )
 
     if output_dir and quantile_label:
-        out = Path(output_dir) / f"fp_xgb_{quantile_label}.csv"
+        out = Path(output_dir) / f"fp_xgb_{cat}_{quantile_label}.csv"
         out.parent.mkdir(parents=True, exist_ok=True)
         results_df.to_csv(out, index=False)
         print(f"Saved XGB intermediate results → {out}")
