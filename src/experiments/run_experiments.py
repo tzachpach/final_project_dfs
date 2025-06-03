@@ -27,7 +27,7 @@ enriched = enrich_pipeline(pre)
 contests = pd.read_csv(
     os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-        "data/contests_data/fanduel_nba_contests.csv",
+        "data/contests_data/fanduel_nba_contests_all_seasons.csv",
     )
 )
 
