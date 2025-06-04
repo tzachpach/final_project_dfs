@@ -26,8 +26,10 @@ model_configs = [
         "model_type": "RNN",
         "rnn_type": ["LSTM"],
         # Mode toggle (2)
-        "mode": ["weekly"],
+        "mode": ["daily", "weekly"],
         # Look‑back / window (1 each)
+        "lookback_daily": [5],
+        "lookback_weekly": [15],
         "train_window_days": [30],  # used in daily mode
         "train_window_weeks": [6],  # used in weekly mode
         # Network capacity grid: hidden size (1) × layers (2) = 2

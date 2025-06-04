@@ -11,6 +11,8 @@ def predict_fp_rnn_q(
     mode: str,
     train_window_days: int,
     train_window_weeks: int,
+    lookback_daily: int,
+    lookback_weekly: int,
     salary_thresholds: list,
     hidden_size: int,
     num_layers: int,
@@ -82,6 +84,8 @@ def predict_fp_rnn_q(
         raise ValueError(
             "salary_thresholds must be in descending order, e.g. [0.9,0.6,0.0]."
         )
+    # Set lookback:
+    lookback = lookback_daily if mode == "daily" else lookback_weekly
 
     # We'll unify final results here
     all_bin_results = []
@@ -108,7 +112,8 @@ def predict_fp_rnn_q(
             batch_size=batch_size,
             rnn_type=rnn_type,
             multi_target_mode=multi_target_mode,
-            group_by=("date" if mode == "daily" else "week"),
+            group_by=mode,
+            lookback=lookback,
             predict_ahead=predict_ahead,
             platform=platform,
             step_size=step_size,

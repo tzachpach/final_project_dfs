@@ -45,6 +45,8 @@ def get_predictions_df(cfg, enriched_df):
             salary_thresholds=cfg.get("salary_thresholds", [0.0]),
             hidden_size=cfg.get("hidden_size", 128),
             num_layers=cfg.get("num_layers", 1),
+            lookback_weekly=cfg.get("lookback_weekly", 15),
+            lookback_daily=cfg.get("lookback_daily", 5),
             learning_rate=cfg.get("learning_rate", 0.001),
             dropout_rate=cfg.get("dropout_rate", 0.0),
             epochs=cfg.get("epochs", 10),

@@ -215,7 +215,7 @@ def prepare_train_test_rnn_data(
     test_df: pd.DataFrame,
     reduce_features_flag,
     target_platform: str = "fanduel",
-    lookback: int = 15,
+    lookback: int = 5,
     predict_ahead: int = 1,
     use_standard_scaler: bool = False,
 ):
@@ -352,7 +352,8 @@ def rolling_train_test_rnn(
     multi_target_mode,
     quantile_label,
     reduce_features_flag,
-    group_by="week",
+    lookback,
+    group_by="weekly",
     predict_ahead=1,
     platform="fanduel",
     step_size=1,
@@ -378,7 +379,7 @@ def rolling_train_test_rnn(
     df = df.copy().dropna()
     df["game_date"] = pd.to_datetime(df["game_date"])
 
-    if group_by == "week":
+    if group_by == "weekly":
         df["group_col"] = (
             df["game_date"].dt.year.astype(str)
             + "_"
@@ -391,10 +392,10 @@ def rolling_train_test_rnn(
                 else x
             )
         )
-    elif group_by == "date":
+    elif group_by == "daily":
         df["group_col"] = df["game_date"]
     else:
-        raise ValueError("group_by must be 'week' or 'date'.")
+        raise ValueError("group_by must be 'weekly' or 'daily'.")
 
     unique_groups = sorted(df["group_col"].unique())
     all_preds = []
@@ -417,6 +418,7 @@ def rolling_train_test_rnn(
                 batch_size=batch_size,
                 rnn_type=rnn_type,
                 multi_target_mode=False,
+                lookback=lookback,
                 group_by=group_by,
                 predict_ahead=predict_ahead,
                 platform=cat,
@@ -467,7 +469,7 @@ def rolling_train_test_rnn(
         train_groups = unique_groups[i - train_window : i]
         train_df = df[df["group_col"].isin(train_groups)]
 
-        if group_by == "week":
+        if group_by == "weekly":
             test_groups = unique_groups[max(0, i - train_window + 1) : i + 1]
             test_df = df[df["group_col"].isin(test_groups)]
         else:
@@ -487,10 +489,10 @@ def rolling_train_test_rnn(
                 train_df,
                 test_df,
                 target_platform=platform,
-                lookback=train_window,
                 predict_ahead=predict_ahead,
                 use_standard_scaler=False,
                 reduce_features_flag=reduce_features_flag,
+                lookback=lookback,
             )
         )
 
