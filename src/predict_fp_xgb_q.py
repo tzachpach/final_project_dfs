@@ -116,18 +116,13 @@ def predict_fp_xgb_q(
                 group_by=group_col,
                 train_window=rolling_window,
                 save_model=save_model,
-                model_dir=f"{output_dir}\models",
                 xgb_param_dict=xgb_param_dict,
                 output_dir=output_dir,
                 quantile_label=bin_label,
                 reduce_features_flag=reduce_features_flag,
             )
 
-            if multi_target_mode:
-                cat_results.rename(
-                    columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True
-                )
-
+            cat_results.rename(columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True)
             if combined_df.empty:
                 combined_df = cat_results
             else:
@@ -155,18 +150,18 @@ def predict_fp_xgb_q(
             combined_df["fp_fanduel_pred"] = combined_df.apply(
                 lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1
             )
-            combined_df["fp_yahoo_pred"] = combined_df.apply(
-                lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1
-            )
-            combined_df["fp_draftkings_pred"] = combined_df.apply(
-                lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1
-            )
+            # combined_df["fp_yahoo_pred"] = combined_df.apply(
+            #     lambda row: calculate_fp_yahoo(row, pred_mode=True), axis=1
+            # )
+            # combined_df["fp_draftkings_pred"] = combined_df.apply(
+            #     lambda row: calculate_fp_draftkings(row, pred_mode=True), axis=1
+            # )
 
             combined_df["fp_fanduel"] = combined_df.apply(calculate_fp_fanduel, axis=1)
-            combined_df["fp_yahoo"] = combined_df.apply(calculate_fp_yahoo, axis=1)
-            combined_df["fp_draftkings"] = combined_df.apply(
-                calculate_fp_draftkings, axis=1
-            )
+            # combined_df["fp_yahoo"] = combined_df.apply(calculate_fp_yahoo, axis=1)
+            # combined_df["fp_draftkings"] = combined_df.apply(
+            #     calculate_fp_draftkings, axis=1
+            # )
 
         # Optionally add a column indicating the bin label
         combined_df["_bin_label"] = bin_label
@@ -176,12 +171,6 @@ def predict_fp_xgb_q(
 
         return combined_df
 
-    # For i in range(len(thresholds)):
-    #   bin i => [ thresholds[i], thresholds[i-1] )  in 'salary_quantile'
-    # If i=0 => top bin => [ thresholds[0], 1.0]
-    # If we never included 0.0 in the last element, there's no leftover bin below it
-    # This is exactly the slicing logic you described:
-    #   if thresholds=[0.9,0.6], bin #1 => quantile>=0.9, bin #2 => quantile>=0.6 & <0.9
     for i in range(len(salary_thresholds)):
         lower_q = salary_thresholds[i]
         if i == 0:

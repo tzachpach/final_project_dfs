@@ -75,6 +75,8 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
         # check that there are enough players for a full roster, given positional constraints
         df_date = df[df["game_date"] == date]
         insufficient_positions = []
+        skip_to_next_date = False
+        
         for platform in ["fanduel"]:
             pos_req = salary_constraints[platform]["positions"]
             roster_size = sum(pos_req.values())
@@ -84,7 +86,8 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
                 logging.warning(
                     f"Not enough players ({len(df_date)}) for a full roster ({roster_size}) on {date}"
                 )
-                continue
+                skip_to_next_date = True
+                break  # Break out of platform loop since we need to skip to next date
 
             # Check if we have enough players for each position
             position_counts = {pos: 0 for pos in pos_req}
@@ -110,11 +113,12 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
                 if position_counts.get(pos, 0) < required + 3:
                     insufficient_positions.append(pos)
 
-        if insufficient_positions:
+        if skip_to_next_date or insufficient_positions:
             logging.warning(
                 f"Not enough players for positions {insufficient_positions} on {date}"
             )
-            continue
+            continue  # Skip to next date
+
         row = {"date": date}
         logging.info(f"Solving {date} with solvers={solvers}")
         for platform in ["fanduel"]:
