@@ -122,7 +122,9 @@ def predict_fp_xgb_q(
                 reduce_features_flag=reduce_features_flag,
             )
 
-            cat_results.rename(columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True)
+            cat_results.rename(
+                columns={"y": cat, "y_pred": f"{cat}_pred"}, inplace=True
+            )
             if combined_df.empty:
                 combined_df = cat_results
             else:
