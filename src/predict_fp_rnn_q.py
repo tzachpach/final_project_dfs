@@ -5,6 +5,10 @@ from datetime import datetime
 from config.constants import PROJECT_ROOT
 from src.test_train_utils import rolling_train_test_rnn
 
+import warnings
+
+warnings.filterwarnings("ignore")
+
 
 def predict_fp_rnn_q(
     df: pd.DataFrame,
