@@ -72,11 +72,12 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
     out_rows = []
 
     for date in df["game_date"].unique():
+
         # check that there are enough players for a full roster, given positional constraints
         df_date = df[df["game_date"] == date]
         insufficient_positions = []
         skip_to_next_date = False
-        
+
         for platform in ["fanduel"]:
             pos_req = salary_constraints[platform]["positions"]
             roster_size = sum(pos_req.values())
