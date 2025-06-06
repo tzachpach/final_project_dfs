@@ -25,12 +25,12 @@ def rolling_train_test_for_xgb(
     group_by: str,
     train_window: int,
     save_model: bool,
-    model_dir: str,
     reduce_features_flag: bool,
     xgb_param_dict=None,
     output_dir=None,
     quantile_label=None,
 ):
+    model_dir = "output/models"
     os.makedirs(model_dir, exist_ok=True)
 
     # ---------------- group-col construction --------------
