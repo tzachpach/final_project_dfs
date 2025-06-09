@@ -60,13 +60,13 @@ model_configs = [
             [0.0],  # rest
         ],
         # Fixed training hyper‑params to keep runtime low
-        "learning_rate": [0.001],
+        "learning_rate": [0.001, 0.01],
         "dropout_rate": [0.2],
-        "epochs": [15],
-        "batch_size": [32],
+        "epochs": [15, 20],
+        "batch_size": [32, 64],
         "multi_target_mode": [False, True],
         "predict_ahead": [1],
-        "reduce_features_flag": ["PCA", "Kbest", False],
+        "reduce_features_flag": ["PCA", "Kbest"],
         # ── Optuna specific configurations ────────────────────────────────
         "use_optuna": [True],
         "optuna_params": {
