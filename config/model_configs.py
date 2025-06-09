@@ -1,17 +1,17 @@
 model_configs = [
-    # -------------------------------------------------- 8 XGBoost variants
     {
         "model_type": "XGBoost",
         # ── DFS salary‑bin strategies (2) ────────────────────────────────
-        "thresholds": [
-            [0.90, 0.60, 0.00],  # top‑10% / mid‑30% / rest
-            # [0.75, 0.00],  # top‑25% / rest
+        "salary_thresholds": [
+            [0.9, 0.6, 0.0],  # top‑10% / mid‑30% / rest
+            [0.95, 0.8, 0.0],  # top‑5% / mid-15% / rest
+            [0.0],  # rest
         ],
         # ── Mode toggle (2) ──────────────────────────────────────────────
         "mode": ["weekly", "daily"],  # ← both evaluated
         # Look‑back windows (1 each → they do **not** multiply)
-        "train_window_days": [30],  # used only when mode == "daily"
-        "train_window_weeks": [6],  # used only when mode == "weekly"
+        "train_window_days": [20, 30, 60],  # used only when mode == "daily"
+        "train_window_weeks": [4,6, 8],  # used only when mode == "weekly"
         "save_model": [True],
         # ── Booster depth / LR pairs (2) ─────────────────────────────────
         "xgb_params": [
@@ -20,25 +20,44 @@ model_configs = [
         ],
         "model_dir": ["models"],
         "reduce_features_flag": ["Kbest", "PCA", False],
+        # ── Optuna specific configurations ────────────────────────────────
+        "use_optuna": [True],
+        "optuna_params": {
+            "n_trials": 100,
+            "timeout": 7200,  # 2 hour timeout
+            "metric": "rmse",  # metric to optimize
+            "direction": "minimize",  # minimize RMSE
+            "param_ranges": {
+                "max_depth": [3, 9],
+                "learning_rate": [0.01, 0.3],
+                "n_estimators": [50, 500],
+                "subsample": [0.6, 1.0],
+                "colsample_bytree": [0.6, 1.0],
+                "min_child_weight": [1, 10],
+                "gamma": [0, 1],
+                "reg_alpha": [0, 1],
+                "reg_lambda": [1, 10]
+            }
+        }
     },
-    # -------------------------------------------------- 8 RNN variants
     {
         "model_type": "RNN",
-        "rnn_type": ["LSTM"],
+        "rnn_type": ["LSTM", "GRU"],
         # Mode toggle (2)
         "mode": ["daily", "weekly"],
         # Look‑back / window (1 each)
-        "lookback_daily": [5],
-        "lookback_weekly": [15],
-        "train_window_days": [30],  # used in daily mode
-        "train_window_weeks": [6],  # used in weekly mode
+        "lookback_daily": [5, 10],
+        "lookback_weekly": [10, 15, 20],
+        "train_window_days": [30, 45, 60],  # used in daily mode
+        "train_window_weeks": [6, 8, 10],  # used in weekly mode
         # Network capacity grid: hidden size (1) × layers (2) = 2
-        "hidden_size": [64],
-        "num_layers": [1, 2],
+        "hidden_size": [32, 64],
+        "num_layers": [1, 3],
         # Salary‑bin strategies (2)
         "salary_thresholds": [
-            [0.90, 0.60, 0.00],
-            # [0.75, 0.00],
+            [0.9, 0.6, 0.0],  # top‑10% / mid‑30% / rest
+            [0.95, 0.8, 0.0],  # top‑5% / mid-15% / rest
+            [0.0],  # rest
         ],
         # Fixed training hyper‑params to keep runtime low
         "learning_rate": [0.001],
@@ -48,5 +67,20 @@ model_configs = [
         "multi_target_mode": [False, True],
         "predict_ahead": [1],
         "reduce_features_flag": ["PCA", "Kbest", False],
+        # ── Optuna specific configurations ────────────────────────────────
+        "use_optuna": [True],
+        "optuna_params": {
+            "n_trials": 50,  # fewer trials for RNN due to longer training time
+            "timeout": 7200,  # 2 hour timeout
+            "metric": "rmse",
+            "direction": "minimize",
+            "param_ranges": {
+                "hidden_size": [32, 128],
+                "num_layers": [1, 3],
+                "learning_rate": [0.0001, 0.01],
+                "dropout_rate": [0.1, 0.5],
+                "batch_size": [16, 64]
+            }
+        }
     },
 ]
