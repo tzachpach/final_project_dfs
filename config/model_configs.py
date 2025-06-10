@@ -46,13 +46,13 @@ model_configs = [
         # Mode toggle (2)
         "mode": ["daily", "weekly"],
         # Look‑back / window (1 each)
-        "lookback_daily": [5, 10],
-        "lookback_weekly": [10, 15, 20],
-        "train_window_days": [30, 45, 60],  # used in daily mode
-        "train_window_weeks": [6, 8, 10],  # used in weekly mode
+        "lookback_daily": [5, 10],      # full param grids in commented brackets [] below
+        "lookback_weekly": [10, 20],    # [10, 15, 20]
+        "train_window_days": [30, 60],  # used in daily mode [30, 45, 60]
+        "train_window_weeks": [6, 10],  # used in weekly mode [6, 8, 10]
         # Network capacity grid: hidden size (1) × layers (2) = 2
-        "hidden_size": [32, 64],
-        "num_layers": [1, 3],
+        "hidden_size": [32],            # [32, 64]
+        "num_layers": [1],              # [1, 3]
         # Salary‑bin strategies (2)
         "salary_thresholds": [
             [0.9, 0.6, 0.0],  # top‑10% / mid‑30% / rest
@@ -60,13 +60,13 @@ model_configs = [
             [0.0],  # rest
         ],
         # Fixed training hyper‑params to keep runtime low
-        "learning_rate": [0.001, 0.01],
-        "dropout_rate": [0.2],
-        "epochs": [15, 20],
-        "batch_size": [32, 64],
-        "multi_target_mode": [False, True],
+        "learning_rate": [0.001, 0.01], # [0.0001, 0.001, 0.005, 0.01, 0.05]
+        "dropout_rate": [0.2],          # [0.1, 0.2, 0.4]
+        "epochs": [25],                 # [15, 25]
+        "batch_size": [32],             # [32, 64]
+        "multi_target_mode": [False],   # [False, True]
         "predict_ahead": [1],
-        "reduce_features_flag": ["PCA", "Kbest"],
+        "reduce_features_flag": ["PCA", "Kbest"], # ["PCA", "Kbest", False]
         # ── Optuna specific configurations ────────────────────────────────
         "use_optuna": [True],
         "optuna_params": {
