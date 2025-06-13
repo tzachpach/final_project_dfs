@@ -407,7 +407,7 @@ def rolling_train_test_rnn(
         all_category_results = []
         for cat in dfs_cats:  # Assuming dfs_cats is defined elsewhere
             cat_df = df.copy()
-            cat_result = rolling_train_test_rnn(
+            cat_result = rolling_train_test_rnn_fixed(
                 df=cat_df,
                 train_window=train_window,
                 hidden_size=hidden_size,
@@ -485,7 +485,7 @@ def rolling_train_test_rnn(
             continue
 
         X_train, y_train, X_test, y_test, p_test, d_test, scalers = (
-            prepare_train_test_rnn_data(
+            prepare_train_test_rnn_data_fixed(
                 train_df,
                 test_df,
                 target_platform=platform,
@@ -655,3 +655,293 @@ def train_rnn_model(
             )
         else:
             print(f"Epoch {epoch}/{epochs}, Train Loss: {epoch_loss/num_batches:.4f}")
+
+
+def prepare_train_test_rnn_data_fixed(
+    train_df: pd.DataFrame,
+    feature_df: pd.DataFrame,
+    label_df: pd.DataFrame,
+    reduce_features_flag,
+    target_platform: str = "fanduel",
+    lookback: int = 5,
+    predict_ahead: int = 1,
+    use_standard_scaler: bool = False,
+):
+    """
+    • scalers are fit **only on train_df**
+    • feature_df supplies look-back context (can overlap label_df)
+    • label_df marks which rows are acceptable as *targets* for test
+    """
+    for df in (train_df, feature_df, label_df):
+        df["player_key"] = df["player_name"] + "_" + df["team_abbreviation"].str.upper()
+    KEY = "player_key"
+
+    train_df   = train_df.sort_values([KEY, "game_date"]).reset_index(drop=True)
+    feature_df = feature_df.sort_values([KEY, "game_date"]).reset_index(drop=True)
+    label_df   = label_df.sort_values([KEY, "game_date"]).reset_index(drop=True)
+
+    target_col = f"fp_{target_platform}" if f"fp_{target_platform}" in train_df.columns else target_platform
+
+    # one-hot (fit design on train, reuse for others) ---------------------
+    CAT = [c for c in train_df.columns if "pos-" in c or c in ("team_abbreviation", "opponent_abbr")]
+    train_df   = pd.get_dummies(train_df,   columns=CAT, drop_first=True)
+    feature_df = pd.get_dummies(feature_df, columns=CAT, drop_first=True).reindex(columns=train_df.columns, fill_value=0)
+    label_df   = pd.get_dummies(label_df,   columns=CAT, drop_first=True).reindex(columns=train_df.columns, fill_value=0)
+
+    EXCL = {"player_name", KEY, "game_id", "game_date", "group_col",
+            "available_flag", "season_year", "fp_draftkings", "fp_fanduel", "fp_yahoo"}
+    NUM  = [c for c in train_df.columns if c not in EXCL and c not in same_game_cols]
+
+    # optional reducer ----------------------------------------------------
+    if reduce_features_flag:
+        transf, aux = fit_feature_reducer(
+            X_train=train_df[NUM],
+            y_train=train_df[target_col],
+            mode=reduce_features_flag,
+            keep_ratio=0.70,
+            cap=300,
+        )
+        aux += [c for c in train_df.columns if ("pos-" in c or "salary" in c)]
+        aux = list(dict.fromkeys(aux))
+        train_num   = apply_feature_reducer(train_df,   transf, aux)
+        feature_num = apply_feature_reducer(feature_df, transf, aux)
+    else:
+        train_num   = train_df[NUM]
+        feature_num = feature_df[NUM]
+
+    FEATS = train_num.columns.tolist()
+
+    # per-player scalers (fit on train only) ------------------------------
+    scaler_cls = StandardScaler if use_standard_scaler else MinMaxScaler
+    scalers = {}
+    for k, grp in train_df.groupby(KEY):
+        if len(grp) < 2:
+            continue
+        scalers[k] = {
+            "X": scaler_cls().fit(train_num.loc[grp.index, FEATS]),
+            "y": scaler_cls().fit(grp[[target_col]].values),
+        }
+
+    # helper --------------------------------------------------------------
+    label_dates_by_player = (
+        label_df.groupby(KEY)["game_date"].apply(set).to_dict()
+    )
+
+    def build_sequences(source_df, numeric_df, is_train: bool):
+        X_l, y_l, p_l, d_l = [], [], [], []
+        for k, grp in source_df.groupby(KEY):
+            if k not in scalers:
+                continue
+            X_scaled = scalers[k]["X"].transform(numeric_df.loc[grp.index, FEATS])
+            y_scaled = scalers[k]["y"].transform(grp[[target_col]].values).flatten()
+            dates    = grp["game_date"].values
+
+            for i in range(lookback, len(grp) - predict_ahead + 1):
+                tgt_date = dates[i + predict_ahead - 1]
+
+                # ── training sequences -----------------------------------
+                if is_train:
+                    X_l.append(X_scaled[i - lookback : i])
+                    y_l.append(y_scaled[i + predict_ahead - 1])
+                    continue
+
+                # ── test sequences: only if target_date is in label_df ---
+                if tgt_date in label_dates_by_player.get(k, set()):
+                    X_l.append(X_scaled[i - lookback : i])
+                    y_l.append(y_scaled[i + predict_ahead - 1])
+                    p_l.append(k)
+                    d_l.append(tgt_date)
+
+        X_arr = np.asarray(X_l, dtype="float32")
+        y_arr = np.asarray(y_l, dtype="float32")
+        return (X_arr, y_arr) if is_train else (X_arr, y_arr, p_l, d_l)
+
+    X_train, y_train                   = build_sequences(train_df,   train_num,   True)
+    X_test,  y_test, p_test, d_test    = build_sequences(feature_df, feature_num, False)
+
+    return X_train, y_train, X_test, y_test, p_test, d_test, scalers
+
+
+def rolling_train_test_rnn_fixed(
+    df: pd.DataFrame,
+    train_window: int,
+    hidden_size: int,
+    num_layers: int,
+    learning_rate: float,
+    dropout_rate: float,
+    epochs: int,
+    batch_size: int,
+    rnn_type: str,
+    multi_target_mode: bool,
+    quantile_label: str,
+    reduce_features_flag,
+    lookback: int,
+    group_by: str = "weekly",
+    predict_ahead: int = 1,
+    platform: str = "fanduel",
+    step_size: int = 1,
+    output_dir: str = "output_csv",
+    save_csv: bool = True,
+):
+    """
+    A data-leak-safe rolling window trainer / predictor for RNNs that supports
+    both single-target and multi-target (per-stat) modes.
+
+    • The model is trained on the *train_window* previous groups.
+    • The evaluation targets are **only** the rows in *current_group*.
+    • Historical rows from current_group may still appear in the feature
+      sequences (look-back context) but never as targets in the same step.
+    """
+
+    # ── handle recursive multi-target mode ───────────────────────────────
+    if multi_target_mode:
+        os.makedirs(output_dir, exist_ok=True)
+        all_category_results = []
+
+        for cat in dfs_cats:                                # e.g. ['pts', 'ast', …]
+            cat_df = df.copy()
+            cat_res = rolling_train_test_rnn_fixed(
+                df=cat_df,
+                train_window=train_window,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                learning_rate=learning_rate,
+                dropout_rate=dropout_rate,
+                epochs=epochs,
+                batch_size=batch_size,
+                rnn_type=rnn_type,
+                multi_target_mode=False,                   # ← recursion stop
+                quantile_label=quantile_label,
+                reduce_features_flag=reduce_features_flag,
+                lookback=lookback,
+                group_by=group_by,
+                predict_ahead=predict_ahead,
+                platform=cat,                              # predict that stat
+                step_size=step_size,
+                output_dir=output_dir,
+                save_csv=False,                            # children handle no I/O
+            )
+
+            cat_res = cat_res.rename(
+                columns={"y_true": f"{cat}", "y_pred": f"{cat}_pred"}
+            )
+            out_path = os.path.join(output_dir, f"{cat}_{quantile_label}.csv")
+            cat_res.to_csv(out_path, index=False)
+            print(f"[multi-target] Saved {out_path}")
+            all_category_results.append(cat_res)
+
+        # ── merge per-stat results & compute FanDuel fp ─────────────────
+        combined = reduce(
+            lambda l, r: pd.merge(l, r, on=["player_name", "game_date"], how="outer"),
+            all_category_results,
+        ).drop_duplicates(["player_name", "game_date"])
+
+        combined["fp_fanduel_pred"] = combined.apply(
+            lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1
+        )
+        combined["fp_fanduel"] = combined.apply(calculate_fp_fanduel, axis=1)
+        combined["game_date"] = pd.to_datetime(combined["game_date"])
+
+        final_path = os.path.join(output_dir, f"fp_fanduel_{quantile_label}.csv")
+        combined.to_csv(final_path, index=False)
+        print(f"[multi-target] Combined predictions saved → {final_path}")
+        return combined
+
+    # ─────────────────────────────────────────────────────────────────────
+    # single-target mode from here
+    # ─────────────────────────────────────────────────────────────────────
+    device = select_device()
+    df = df.copy().dropna()
+    df["game_date"] = pd.to_datetime(df["game_date"])
+
+    # build group label ---------------------------------------------------
+    if group_by == "weekly":
+        df["group_col"] = (
+            df["game_date"].dt.year.astype(str) + "_" +
+            df["game_date"].dt.isocalendar().week.astype(str).str.zfill(2)
+        )
+    elif group_by == "daily":
+        df["group_col"] = df["game_date"]
+    else:
+        raise ValueError("group_by must be 'weekly' or 'daily'.")
+
+    unique_groups = sorted(df["group_col"].unique())
+    results = []
+
+    for i in range(train_window, len(unique_groups), step_size):
+        current_group = unique_groups[i]
+        print(f"\n── step {i}/{len(unique_groups)-1} | test={current_group} ──")
+
+        train_groups = unique_groups[i - train_window : i]
+        feature_groups = train_groups + [current_group]
+
+        train_df   = df[df["group_col"].isin(train_groups)].copy()
+        feature_df = df[df["group_col"].isin(feature_groups)].copy()
+        label_df   = df[df["group_col"] == current_group].copy()
+
+        if train_df.empty or label_df.empty:
+            print("   · skipped (empty split)")
+            continue
+
+        X_tr, y_tr, X_te, y_te, p_te, d_te, scalers = prepare_train_test_rnn_data_fixed(
+            train_df=train_df,
+            feature_df=feature_df,
+            label_df=label_df,
+            target_platform=platform,
+            lookback=lookback,
+            predict_ahead=predict_ahead,
+            reduce_features_flag=reduce_features_flag,
+        )
+
+        if len(X_tr) == 0 or len(X_te) == 0:
+            print("   · skipped (no valid sequences)")
+            continue
+
+        # ── model fit ----------------------------------------------------
+        model = SimpleRNN(
+            input_size=X_tr.shape[2],
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            rnn_type=rnn_type,
+            dropout=dropout_rate,
+        )
+        train_rnn_model(
+            model,
+            X_tr,
+            y_tr,
+            epochs=epochs,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+            device=device,
+        )
+
+        # ── inference ----------------------------------------------------
+        model.eval()
+        with torch.no_grad():
+            y_pred_s = model(torch.tensor(X_te, dtype=torch.float32, device=device)).cpu().numpy()
+
+        # inverse-scale ----------------------------------------------------
+        y_pred, y_true = [], []
+        for k, ps, ts in zip(p_te, y_pred_s, y_te):
+            inv_pred = scalers[k]["y"].inverse_transform(ps.reshape(-1, 1))[0, 0]
+            inv_true = scalers[k]["y"].inverse_transform(ts.reshape(-1, 1))[0, 0]
+            y_pred.append(inv_pred)
+            y_true.append(inv_true)
+
+        step_df = pd.DataFrame({
+            "player_name": [player_key_to_name(pk) for pk in p_te],
+            "game_date": d_te,
+            "y_true": y_true,
+            "y_pred": y_pred,
+        })
+        results.append(step_df)
+
+    results_df = pd.concat(results, ignore_index=True)
+
+    if save_csv:
+        os.makedirs(output_dir, exist_ok=True)
+        fname = os.path.join(output_dir, f"fp_{platform}_{quantile_label}.csv")
+        results_df.to_csv(fname, index=False)
+        print(f"[single-target] Saved → {fname}")
+
+    return results_df

@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 
 from config.constants import PROJECT_ROOT
-from src.test_train_utils import rolling_train_test_rnn
+from src.test_train_utils import rolling_train_test_rnn_fixed
 
 import warnings
 
@@ -105,7 +105,7 @@ def predict_fp_rnn_q(
 
         print(f"\n=== Training RNN bin '{bin_label}' with {len(bin_df)} rows. ===")
 
-        results_df = rolling_train_test_rnn(
+        results_df = rolling_train_test_rnn_fixed(
             df=bin_df,
             train_window=(train_window_days if mode == "daily" else train_window_weeks),
             hidden_size=hidden_size,
