@@ -5,40 +5,32 @@ model_configs = [
     #     "salary_thresholds": [
     #         [0.9, 0.6, 0.0],  # top‑10% / mid‑30% / rest
     #         [0.95, 0.8, 0.0],  # top‑5% / mid-15% / rest
-    #         [0.0],  # rest
     #     ],
     #     # ── Mode toggle (2) ──────────────────────────────────────────────
     #     "mode": ["weekly", "daily"],  # ← both evaluated
     #     # Look‑back windows (1 each → they do **not** multiply)
-    #     "train_window_days": [20, 30, 60],  # used only when mode == "daily"
-    #     "train_window_weeks": [4,6, 8],  # used only when mode == "weekly"
+    #     "train_window_days": [20, 60],  # used only when mode == "daily"
+    #     "train_window_weeks": [4, 8],  # used only when mode == "weekly"
     #     "save_model": [True],
-    #     # ── Booster depth / LR pairs (2) ─────────────────────────────────
+    #     # ── Booster depth / LR pairs (8) ─────────────────────────────────
     #     "xgb_params": [
-    #         # {},  # baseline (depth‑6, η0.3)
-    #         {"max_depth": 5, "eta": 0.05},  # deeper, slower LR
+    #         # Basic configurations
+    #         {"max_depth": 4, "eta": 0.1, "subsample": 0.8},    # shallow, fast, moderate subsample
+    #         {"max_depth": 5, "eta": 0.05, "subsample": 0.9},   # medium, medium, high subsample
+    #         {"max_depth": 6, "eta": 0.01, "subsample": 1.0},   # deep, slow, full sample
+            
+    #         # Column sampling variations
+    #         {"max_depth": 4, "eta": 0.1, "colsample_bytree": 0.8},  # feature sampling
+    #         {"max_depth": 5, "eta": 0.05, "colsample_bylevel": 0.8},  # per-level sampling
+            
+    #         # Regularization variations
+    #         {"max_depth": 5, "eta": 0.05, "reg_alpha": 0.1, "reg_lambda": 1.0},  # L1/L2
+    #         {"max_depth": 4, "eta": 0.1, "min_child_weight": 3},   # conservative splits
+    #         {"max_depth": 6, "eta": 0.01, "gamma": 0.1},            # pruning control
     #     ],
     #     "model_dir": ["models"],
-    #     "reduce_features_flag": ["Kbest", "PCA", False],
+    #     "reduce_features_flag": ["Kbest", "PCA"],
     #     # ── Optuna specific configurations ────────────────────────────────
-    #     "use_optuna": [True],
-    #     "optuna_params": {
-    #         "n_trials": 100,
-    #         "timeout": 7200,  # 2 hour timeout
-    #         "metric": "rmse",  # metric to optimize
-    #         "direction": "minimize",  # minimize RMSE
-    #         "param_ranges": {
-    #             "max_depth": [3, 9],
-    #             "learning_rate": [0.01, 0.3],
-    #             "n_estimators": [50, 500],
-    #             "subsample": [0.6, 1.0],
-    #             "colsample_bytree": [0.6, 1.0],
-    #             "min_child_weight": [1, 10],
-    #             "gamma": [0, 1],
-    #             "reg_alpha": [0, 1],
-    #             "reg_lambda": [1, 10]
-    #         }
-    #     }
     # },
     {
         "model_type": "RNN",
@@ -67,6 +59,5 @@ model_configs = [
         "multi_target_mode": [False, True],
         "predict_ahead": [1],
         "reduce_features_flag": ["PCA", "Kbest"],
-        # ── Optuna specific configurations ────────────────────────────────
     },
 ]
