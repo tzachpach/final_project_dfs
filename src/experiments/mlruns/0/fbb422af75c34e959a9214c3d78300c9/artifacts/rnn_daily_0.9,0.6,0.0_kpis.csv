@@ -1,0 +1,2 @@
+fp_fanduel_RMSE,fp_fanduel_MAE,fp_fanduel_Bias,num_contests_raw,ga_pred_win_rate,ga_pred_cash_rate,ga_total_profit,ga_avg_profit,ilp_pred_win_rate,ilp_pred_cash_rate,ilp_total_profit,ilp_avg_profit,pulp_pred_win_rate,pulp_pred_cash_rate,pulp_total_profit,pulp_avg_profit,rows_dropped_dup
+6.082910060882568,4.462772369384766,0.022772835567593575,8933,0.2541139594760999,0.7526027090563081,5555012.760000001,631.6103194997158,0.8792119108921975,0.994066942796373,30970698.759999998,3532.6450051328843,0.8792119108921975,0.994066942796373,30970698.759999998,3532.6450051328843,0
