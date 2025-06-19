@@ -10,7 +10,7 @@ import pandas as pd
 from config.helpers import get_predictions_df, get_lineup
 from src.experiments.grid import iter_cfgs
 from src.experiments.ml_utils import log_cfg
-from src.evaluate_results import evaluate_results
+from src.evaluate_results import evaluate_results, format_metrics_for_logging
 from config.pipelines import preprocess_pipeline, enrich_pipeline
 
 import warnings
@@ -49,8 +49,14 @@ def run_one_cfg(cfg):
         kpis, pct = evaluate_results(preds, lineup, contests)
 
         clean_kpis = {k: (v if pd.notna(v) else -1.0) for k, v in kpis.items()}
+
         mlflow.log_metrics(clean_kpis)
         mlflow.log_metric("runtime_sec", round(time.time() - t0, 2))
+
+        formatted_kpis = format_metrics_for_logging(clean_kpis)
+        # Log the formatted metrics as tags so they appear as-is in the UI (MLflow metrics must be float)
+        for key, value in formatted_kpis.items():
+            mlflow.set_tag(key + "_formatted", value)
 
         run_dir = Path(urlparse(mlflow.get_artifact_uri()).path)
         run_dir.mkdir(parents=True, exist_ok=True)

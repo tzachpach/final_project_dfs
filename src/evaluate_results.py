@@ -315,3 +315,26 @@ def evaluate_results(
     #     top_features_dict = {}
 
     return res_dict, df_percentile_data  # , top_features_dict
+
+# trying this script out for better visualization of KPI's of outputs on mlflow and artifacts etc
+def format_metrics_for_logging(metrics):
+    formatted = {}
+    for k, v in metrics.items():
+        if k.endswith("_win_rate") or k.endswith("_cash_rate"):
+            if v is not None and not pd.isna(v):
+                formatted[k] = f"{100 * v:.1f} %"
+            else:
+                formatted[k] = "N/A"
+        elif k.endswith("_total_profit") or k.endswith("_profit"):
+            if v is not None and not pd.isna(v):
+                formatted[k] = "${:,.0f}".format(v)
+            else:
+                formatted[k] = "N/A"
+        elif "RMSE" in k:
+            if v is not None and not pd.isna(v):
+                formatted[k] = f"{v:.2f}"
+            else:
+                formatted[k] = "N/A"
+        else:
+            formatted[k] = v
+    return formatted

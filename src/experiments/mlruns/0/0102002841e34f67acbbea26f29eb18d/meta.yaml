@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/admin/Library/Mobile%20Documents/com~apple~CloudDocs/IDC%20MLDS%20MSc%202021/GPT_AI_Research/DFS/final_project_dfs/src/experiments/mlruns/0/0102002841e34f67acbbea26f29eb18d/artifacts
+end_time: 1749603847412
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 0102002841e34f67acbbea26f29eb18d
+run_name: rnn_daily_0.0
+run_uuid: 0102002841e34f67acbbea26f29eb18d
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1749598968297
+status: 3
+tags: []
+user_id: admin

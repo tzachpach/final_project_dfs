@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/admin/Library/Mobile%20Documents/com~apple~CloudDocs/IDC%20MLDS%20MSc%202021/GPT_AI_Research/DFS/final_project_dfs/src/experiments/mlruns/0/28b70c0757d24a02b4559a9324ece81a/artifacts
+end_time: 1750111388852
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 28b70c0757d24a02b4559a9324ece81a
+run_name: xgboost_weekly_0.9,0.6,0.0
+run_uuid: 28b70c0757d24a02b4559a9324ece81a
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1750110613777
+status: 3
+tags: []
+user_id: admin
