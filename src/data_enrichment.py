@@ -41,14 +41,14 @@ def add_time_dependent_features_v2(df, rolling_window):
         features = pd.concat([features, rolling_mean, rolling_std], axis=1)
 
         # Lags and diffs
-        for lag in [1, 2, 3]:
+        for lag in [1, 3]:
             lag_features = group[same_game_cols].shift(lag)
             lag_features.columns = [f"{col}_lag_{lag}" for col in same_game_cols]
-            diff_features = group[same_game_cols].diff(lag)
-            diff_features.columns = [f"{col}_diff_{lag}" for col in same_game_cols]
+            # diff_features = group[same_game_cols].diff(lag)
+            # diff_features.columns = [f"{col}_diff_{lag}" for col in same_game_cols]
 
             # Concatenate lag and diff features
-            features = pd.concat([features, lag_features, diff_features], axis=1)
+            features = pd.concat([features, lag_features], axis=1)
 
         # Add 'player_name' and 'game_date' to features DataFrame
         features["player_name"] = name
@@ -89,7 +89,7 @@ def add_last_season_data_with_extras(current_df, prev_df):
         # ensuring the final bracket is the highest that the player meets.
         current_df.loc[current_df["salary-fanduel"] >= cutoff, "salary_quantile"] = q
 
-    all_cats = dfs_cats + ["fp_fanduel"]  # , 'fp_yahoo', 'fp_draftkings']
+    all_cats = dfs_cats + ["fp_fanduel", "fp_yahoo", "fp_draftkings"]
 
     # Predefine new columns in current_df (important for consistent structure)
     for cat in all_cats:
@@ -102,9 +102,7 @@ def add_last_season_data_with_extras(current_df, prev_df):
 
     # --- Check if prev_df is empty ---
     if prev_df.empty:
-        print(
-            "Warning: Previous season DataFrame is empty.  Returning current_df without last season stats."
-        )
+        print("Warning: Previous season DataFrame is empty.  Returning current_df without last season stats.")
         return current_df  # Return early, already initialized
 
     # --- Handle players that do not exist in prev season
@@ -198,7 +196,7 @@ def add_last_season_zscores(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_running_season_stats(df):
     """Add running season aggregates and stats up to but not including the current game"""
-    all_cats = dfs_cats + ["fp_fanduel", "fp_yahoo", "fp_draftkings"]
+    all_cats = dfs_cats + ["fp_fanduel"]#, "fp_yahoo", "fp_draftkings"]
 
     # Predefine all new columns with zeros (more efficient than None)
     for cat in all_cats:
@@ -231,14 +229,10 @@ def add_running_season_stats(df):
 
             # Shift to exclude current game
             df.loc[group_idx, f"running_season_total_{cat}"] = cumsum.shift(1).fillna(0)
-            df.loc[group_idx, f"running_season_avg_{cat}"] = (
-                cumsum.shift(1) / cumcount.shift(1)
-            ).fillna(0)
+            df.loc[group_idx, f"running_season_avg_{cat}"] = (cumsum.shift(1) / cumcount.shift(1)).fillna(0)
 
         # Calculate games played (vectorized)
-        df.loc[group_idx, "running_season_games_played"] = (
-            pd.Series(range(len(group)), index=group_idx).shift(1).fillna(0)
-        )
+        df.loc[group_idx, "running_season_games_played"] = (pd.Series(range(len(group)), index=group_idx).shift(1).fillna(0))
 
         # Calculate double-doubles and triple-doubles more efficiently
         stats_matrix = group[["pts", "reb", "ast", "stl", "blk"]] >= 10
