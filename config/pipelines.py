@@ -38,7 +38,7 @@ def enrich_pipeline(df):
         prev_season_start_year = str(season_start_year - 1)
         prev_season_year = f"{prev_season_start_year}-{str(season_start_year)[-2:]}"  # Full prev season
 
-        if prev_season_year in all_seasons:  # Correct comparison
+        if prev_season_year in all_seasons:
             print(f"Adding stats from previous season: {prev_season_year}")
             prev_season_df = df[df["season_year"] == prev_season_year]
             season_df = add_last_season_data_with_extras(season_df, prev_season_df)

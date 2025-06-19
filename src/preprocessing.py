@@ -136,7 +136,5 @@ def preprocess_all_seasons_data(all_seasons_df):
     # Calculate fantasy points for each platform - derive target variables
     all_seasons_df["fp_fanduel"] = all_seasons_df.apply(calculate_fp_fanduel, axis=1)
     all_seasons_df["fp_yahoo"] = all_seasons_df.apply(calculate_fp_yahoo, axis=1)
-    all_seasons_df["fp_draftkings"] = all_seasons_df.apply(
-        calculate_fp_draftkings, axis=1
-    )
+    all_seasons_df["fp_draftkings"] = all_seasons_df.apply(calculate_fp_draftkings, axis=1)
     return all_seasons_df
