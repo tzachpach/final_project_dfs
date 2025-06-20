@@ -52,4 +52,6 @@ def iter_cfgs():
                 f'{cfg.get("mode", "n/a")}_'
                 f"{thresh_str[:12]}"  # trim for brevity
             )
+            if cfg["model_type"] == "TST" and "tst_config" in cfg:
+                cfg.update(cfg["tst_config"])  # flatten for ease-of-use
             yield cfg
