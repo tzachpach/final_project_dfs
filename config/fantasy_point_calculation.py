@@ -3,6 +3,9 @@ import pandas as pd
 
 def calculate_fp_fanduel(row, pred_mode=False):
     pred = "_pred" if pred_mode else ""
+    if pred_mode:
+        for stat in ["pts", "reb", "ast", "stl", "blk", "tov"]:
+            assert f"{stat}_pred" in row, f"Expected predicted stat '{stat}_pred' missing in row"
     return (
         row[f"pts{pred}"]
         + row[f"reb{pred}"] * 1.2
