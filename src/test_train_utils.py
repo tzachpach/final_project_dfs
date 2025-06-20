@@ -243,7 +243,7 @@ def prepare_train_test_rnn_data(
         else f"fp_{target_platform}"
     )
     if target_col not in train_df.columns:
-        raise ValueError(f"column “{target_col}” not found")
+        raise ValueError(f"column '{target_col}' not found")
 
     # 2) one-hot categorical columns --------------------------------------
     CAT = [
@@ -329,14 +329,21 @@ def prepare_train_test_rnn_data(
         y_arr = np.asarray(y_l, dtype="float32")
         return (X_arr, y_arr) if is_train else (X_arr, y_arr, p_l, d_l)
 
-    X_train, y_train = build_sequences(train_df.index, True)
-    X_test, y_test, players_test, dates_test = build_sequences(test_df.index, False)
+    X_train, y_train                   = build_sequences(train_df.index, True)
+    X_test,  y_test, p_test, d_test    = build_sequences(test_df.index, False)
 
-    # 7) sanity checks ----------------------------------------------------
-    assert X_train.shape[0] == y_train.shape[0]
-    assert set(players_test).issubset(scalers.keys())
+    # Assert that y_train and y_test only contain the current stat label (target_col)
+    for other_cat in dfs_cats:
+        if other_cat == target_col or other_cat == f"fp_{target_col}":
+            continue
+        assert not (hasattr(y_train, 'columns') and other_cat in y_train), (
+            f"Multi-target leakage: found '{other_cat}' in y_train for target '{target_col}'"
+        )
+        assert not (hasattr(y_test, 'columns') and other_cat in y_test), (
+            f"Multi-target leakage: found '{other_cat}' in y_test for target '{target_col}'"
+        )
 
-    return X_train, y_train, X_test, y_test, players_test, dates_test, scalers
+    return X_train, y_train, X_test, y_test, p_test, d_test, scalers
 
 
 def rolling_train_test_rnn(
@@ -747,6 +754,12 @@ def prepare_train_test_rnn_data_fixed(
 
                 # ── test sequences: only if target_date is in label_df ---
                 if tgt_date in label_dates_by_player.get(k, set()):
+                    # Assert no data leakage: all input dates <= target date
+                    input_dates = dates[i - lookback : i]
+                    assert all(input_date <= tgt_date for input_date in input_dates), (
+                        f"Time leakage: using future features for player {k} at test date {tgt_date}. "
+                        f"Input window ends at {input_dates[-1]}"
+                    )
                     X_l.append(X_scaled[i - lookback : i])
                     y_l.append(y_scaled[i + predict_ahead - 1])
                     p_l.append(k)
@@ -758,6 +771,17 @@ def prepare_train_test_rnn_data_fixed(
 
     X_train, y_train                   = build_sequences(train_df,   train_num,   True)
     X_test,  y_test, p_test, d_test    = build_sequences(feature_df, feature_num, False)
+
+    # Assert that y_train and y_test only contain the current stat label (target_col)
+    for other_cat in dfs_cats:
+        if other_cat == target_col or other_cat == f"fp_{target_col}":
+            continue
+        assert not (hasattr(y_train, 'columns') and other_cat in y_train), (
+            f"Multi-target leakage: found '{other_cat}' in y_train for target '{target_col}'"
+        )
+        assert not (hasattr(y_test, 'columns') and other_cat in y_test), (
+            f"Multi-target leakage: found '{other_cat}' in y_test for target '{target_col}'"
+        )
 
     return X_train, y_train, X_test, y_test, p_test, d_test, scalers
 

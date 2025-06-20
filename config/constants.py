@@ -88,12 +88,22 @@ best_params = {
 
 def select_device():
     """
-    Chooses 'mps' device on Apple Silicon if available, else CPU.
+    Chooses 'cuda' if available, else 'mps' (Apple Silicon) if available and functional, else CPU.
+    Prints which device is selected.
     """
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("Using device: cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        # Check if MPS is actually functional (sometimes available but not usable)
+        try:
+            x = torch.ones(1, device="mps")
+            device = torch.device("mps")
+            print("Using device: mps")
+        except Exception:
+            device = torch.device("cpu")
+            print("Using device: cpu (MPS not functional)")
     else:
         device = torch.device("cpu")
-
-    print("Using device:", device)
+        print("Using device: cpu")
     return device

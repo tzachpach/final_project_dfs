@@ -8,6 +8,7 @@ from config.constants import salary_constraints
 from src.lineup_optimizer import get_best_lineup
 from src.predict_fp_rnn_q import predict_fp_rnn_q
 from src.predict_fp_xgb_q import predict_fp_xgb_q
+from src.predict_fp_tst_q import predict_fp_tst_q
 
 
 def get_predictions_df(cfg, enriched_df):
@@ -57,6 +58,25 @@ def get_predictions_df(cfg, enriched_df):
             step_size=cfg.get("step_size", 1),
             reduce_features_flag=cfg.get("reduce_features_flag", True),
             platform=cfg.get("platform", "fanduel"),
+        )
+        return predictions
+
+    elif model_type.lower() == "tst":
+        predictions = predict_fp_tst_q(
+            enriched_df,
+            mode=cfg.get("mode", "daily"),
+            train_window_days=cfg.get("train_window_days", 30),
+            train_window_weeks=cfg.get("train_window_weeks", 4),
+            lookback_daily=cfg.get("lookback_daily", 10),
+            lookback_weekly=cfg.get("lookback_weekly", 10),
+            salary_thresholds=cfg.get("salary_thresholds", [0.9, 0.6, 0.0]),
+            multi_target_mode=cfg.get("multi_target_mode", False),
+            predict_ahead=cfg.get("predict_ahead", 1),
+            step_size=cfg.get("step_size", 1),
+            reduce_features_flag=cfg.get("reduce_features_flag", True),
+            tst_config=cfg["tst_config"],
+            platform=cfg.get("platform", "fanduel"),
+            save_model=cfg.get("save_model", True),
         )
         return predictions
 
