@@ -79,4 +79,24 @@ model_configs = [
             }
         ],
     },
+        {
+        "model_type": "TST",
+        "mode": ["daily", "weekly"],
+        "lookback": [10, 15],
+        "train_window_days": [30],
+        "train_window_weeks": [4],
+        "salary_thresholds": [[0.9, 0.6, 0.0]],
+        "multi_target_mode": [False, True],
+        "tst_config": [
+            {
+                "model_dim": 64,
+                "num_heads": 4,
+                "num_layers": 2,
+                "dropout": 0.1,
+                "epochs": 10,
+                "batch_size": 32,
+                "learning_rate": 0.001
+            }
+        ],
+    },
 ]
