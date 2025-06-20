@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 from datetime import datetime
+import mlflow
 
 from config.constants import PROJECT_ROOT
 from src.test_train_utils import prepare_train_test_rnn_data_fixed
@@ -213,19 +214,18 @@ def predict_fp_tst_q(
     lookback_daily: int,
     lookback_weekly: int,
     salary_thresholds: list,
-    model_dim: int,
-    num_heads: int,
-    num_layers: int,
-    learning_rate: float,
-    dropout_rate: float,
-    epochs: int,
-    batch_size: int,
     multi_target_mode: bool,
     predict_ahead: int,
     step_size: int,
     reduce_features_flag: bool,
+    tst_config: dict,
     platform: str = "fanduel",
+    save_model: bool = True,
 ):
+    """
+    Args:
+        tst_config (dict): Should contain model_dim, num_heads, num_layers, dropout, epochs, batch_size, learning_rate
+    """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = PROJECT_ROOT / "output_csv" / f"tst_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -242,21 +242,23 @@ def predict_fp_tst_q(
         )
     lookback = lookback_daily if mode == "daily" else lookback_weekly
     all_bin_results = []
+
     def train_tst_for_bin(bin_df: pd.DataFrame, bin_label: str) -> pd.DataFrame:
         if bin_df.empty:
             print(f"[WARN] Bin '{bin_label}' is empty. Skipping.")
             return pd.DataFrame()
         print(f"\n=== Training TST bin '{bin_label}' with {len(bin_df)} rows. ===")
+
         results_df = rolling_train_test_tst_fixed(
             df=bin_df,
             train_window=(train_window_days if mode == "daily" else train_window_weeks),
-            model_dim=model_dim,
-            num_heads=num_heads,
-            num_layers=num_layers,
-            learning_rate=learning_rate,
-            dropout_rate=dropout_rate,
-            epochs=epochs,
-            batch_size=batch_size,
+            model_dim=tst_config["model_dim"],
+            num_heads=tst_config["num_heads"],
+            num_layers=tst_config["num_layers"],
+            learning_rate=tst_config["learning_rate"],
+            dropout_rate=tst_config["dropout"],
+            epochs=tst_config["epochs"],
+            batch_size=tst_config["batch_size"],
             multi_target_mode=multi_target_mode,
             group_by=mode,
             lookback=lookback,
@@ -267,20 +269,15 @@ def predict_fp_tst_q(
             output_dir=output_dir,
             reduce_features_flag=reduce_features_flag,
         )
+
         if results_df.empty:
             return pd.DataFrame()
+
+        # Merge with original columns for lookup
         keep_cols = [
-            "player_name",
-            "game_id",
-            "game_date",
-            "minutes_played",
-            "team_abbreviation",
-            "salary-fanduel",
-            "salary-draftkings",
-            "salary-yahoo",
-            "pos-fanduel",
-            "pos-draftkings",
-            "pos-yahoo",
+            "player_name", "game_id", "game_date", "minutes_played", "team_abbreviation",
+            "salary-fanduel", "salary-draftkings", "salary-yahoo",
+            "pos-fanduel", "pos-draftkings", "pos-yahoo",
         ]
         keep_cols = [c for c in keep_cols if c in bin_df.columns]
         df_lookup = bin_df[keep_cols].drop_duplicates(
@@ -309,7 +306,14 @@ def predict_fp_tst_q(
             columns={k: v for k, v in renamed.items() if k in merged_df.columns}
         )
         merged_df["_bin_label"] = bin_label
+
+        # Always write intermediate results per bin to CSV
+        csv_path = output_dir / f"fp_{platform}_{bin_label}.csv"
+        merged_df.to_csv(csv_path, index=False)
+        print(f"[INFO] Saved bin results to {csv_path}")
+
         return merged_df
+
     if "salary_quantile" not in df.columns:
         raise ValueError(
             "DataFrame must have 'salary_quantile' column for bin slicing."
