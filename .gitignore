@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# MLflow
+mlruns/
+
+# Optuna
+optuna.db
+
+# Model files
+*.pkl
+models/
+
+# Output directories
+output/
+output_csv/
+
+# Artifacts
+artifacts/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/ 
