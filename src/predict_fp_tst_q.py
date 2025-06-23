@@ -17,6 +17,10 @@ from config.constants import select_device
 import warnings
 warnings.filterwarnings("ignore")
 
+def player_key_to_name(player_key: str) -> str:
+    """Convert a player key (player_name_TEAM) back to just the player name."""
+    return player_key.rsplit("_", 1)[0]
+
 def train_tst_model(
     model,
     X_train,
@@ -73,7 +77,7 @@ def rolling_train_test_tst_fixed(
     batch_size: int,
     multi_target_mode: bool,
     quantile_label: str,
-    reduce_features_flag,
+    reduce_features_flag: bool,
     lookback: int,
     group_by: str = "weekly",
     predict_ahead: int = 1,
@@ -128,9 +132,11 @@ def rolling_train_test_tst_fixed(
         combined.to_csv(final_path, index=False)
         print(f"[multi-target] Combined predictions saved → {final_path}")
         return combined
+
     device = select_device()
     df = df.copy().dropna()
     df["game_date"] = pd.to_datetime(df["game_date"])
+
     if group_by == "weekly":
         df["group_col"] = (
             df["game_date"].dt.year.astype(str) + "_" +
@@ -140,19 +146,25 @@ def rolling_train_test_tst_fixed(
         df["group_col"] = df["game_date"]
     else:
         raise ValueError("group_by must be 'weekly' or 'daily'.")
+
     unique_groups = sorted(df["group_col"].unique())
     results = []
+
     for i in range(train_window, len(unique_groups), step_size):
         current_group = unique_groups[i]
         print(f"\n── step {i}/{len(unique_groups)-1} | test={current_group} ──")
+
         train_groups = unique_groups[i - train_window : i]
         feature_groups = train_groups + [current_group]
+
         train_df   = df[df["group_col"].isin(train_groups)].copy()
         feature_df = df[df["group_col"].isin(feature_groups)].copy()
         label_df   = df[df["group_col"] == current_group].copy()
+
         if train_df.empty or label_df.empty:
             print("   · skipped (empty split)")
             continue
+
         X_tr, y_tr, X_te, y_te, p_te, d_te, scalers = prepare_train_test_rnn_data_fixed(
             train_df=train_df,
             feature_df=feature_df,
@@ -162,9 +174,11 @@ def rolling_train_test_tst_fixed(
             predict_ahead=predict_ahead,
             reduce_features_flag=reduce_features_flag,
         )
+
         if len(X_tr) == 0 or len(X_te) == 0:
             print("   · skipped (no valid sequences)")
             continue
+
         model = TimeSeriesTransformer(
             input_size=X_tr.shape[2],
             model_dim=model_dim,
@@ -182,28 +196,34 @@ def rolling_train_test_tst_fixed(
             learning_rate=learning_rate,
             device=device,
         )
+
         model.eval()
         with torch.no_grad():
             y_pred_s = model(torch.tensor(X_te, dtype=torch.float32, device=device)).cpu().numpy()
+
         y_pred, y_true = [], []
         for k, ps, ts in zip(p_te, y_pred_s, y_te):
             inv_pred = scalers[k]["y"].inverse_transform(ps.reshape(-1, 1))[0, 0]
             inv_true = scalers[k]["y"].inverse_transform(ts.reshape(-1, 1))[0, 0]
             y_pred.append(inv_pred)
             y_true.append(inv_true)
+
         step_df = pd.DataFrame({
-            "player_name": [k for k in p_te],
+            "player_name": [player_key_to_name(pk) for pk in p_te],
             "game_date": d_te,
             "y_true": y_true,
             "y_pred": y_pred,
         })
         results.append(step_df)
+
     results_df = pd.concat(results, ignore_index=True)
+
     if save_csv:
         os.makedirs(output_dir, exist_ok=True)
         fname = os.path.join(output_dir, f"fp_{platform}_{quantile_label}.csv")
         results_df.to_csv(fname, index=False)
         print(f"[single-target] Saved → {fname}")
+
     return results_df
 
 def predict_fp_tst_q(
@@ -273,7 +293,7 @@ def predict_fp_tst_q(
         if results_df.empty:
             return pd.DataFrame()
 
-        # Merge with original columns for lookup
+        # Merge with original columns for lookup, same as in RNN pipeline
         keep_cols = [
             "player_name", "game_id", "game_date", "minutes_played", "team_abbreviation",
             "salary-fanduel", "salary-draftkings", "salary-yahoo",
@@ -283,9 +303,11 @@ def predict_fp_tst_q(
         df_lookup = bin_df[keep_cols].drop_duplicates(
             subset=["player_name", "team_abbreviation", "game_id", "game_date"]
         )
+        
         results_df = results_df.rename(
             columns={"y_true": f"fp_{platform}", "y_pred": f"fp_{platform}_pred"}
         )
+
         merged_df = pd.merge(
             results_df[
                 ["player_name", "game_date", f"fp_{platform}", f"fp_{platform}_pred"]
@@ -294,6 +316,7 @@ def predict_fp_tst_q(
             on=["player_name", "game_date"],
             how="left",
         )
+        
         renamed = {
             "salary-fanduel": "fanduel_salary",
             "salary-draftkings": "draftkings_salary",
@@ -305,6 +328,7 @@ def predict_fp_tst_q(
         merged_df = merged_df.rename(
             columns={k: v for k, v in renamed.items() if k in merged_df.columns}
         )
+        
         merged_df["_bin_label"] = bin_label
 
         # Always write intermediate results per bin to CSV
