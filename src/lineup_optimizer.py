@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 _SOLVER_MAP = {
     "GA": solve_ga,
     "ILP": solve_ilp,
-    "PULP": solve_pulp,
+    # "PULP": solve_pulp,
     # "MIP": solve_mip,
 }
 

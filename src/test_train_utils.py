@@ -668,7 +668,7 @@ def prepare_train_test_rnn_data_fixed(
     train_df: pd.DataFrame,
     feature_df: pd.DataFrame,
     label_df: pd.DataFrame,
-    reduce_features_flag,
+    reduce_features_flag: str,
     target_platform: str = "fanduel",
     lookback: int = 5,
     predict_ahead: int = 1,

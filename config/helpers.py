@@ -17,7 +17,7 @@ def get_predictions_df(cfg, enriched_df):
     Return a pd.DataFrame or a list of (param_dict, DataFrame).
     """
 
-    model_type = cfg.get("model_type", "XGBoost")
+    model_type = cfg.get("model_type", "")
 
     if model_type.lower() == "xgboost":
         # Unpack the main fields for xgboost
