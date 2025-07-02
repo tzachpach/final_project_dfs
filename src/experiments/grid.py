@@ -16,57 +16,71 @@ from config.model_configs import model_configs
 
 def _generate_run_name(cfg):
     """Generates an informative run name from the config dictionary."""
-    parts = [cfg["model_type"].lower()]
-
-    if cfg["model_type"] == "RNN":
-        parts.append(cfg.get("rnn_type", "rnn").lower())
-
-    parts.append(cfg.get("mode", "n/a"))
-
-    # Add window and lookback sizes
-    mode = cfg.get("mode")
-    if mode == "daily":
-        if "train_window_days" in cfg: parts.append(f"dwin{cfg['train_window_days']}")
-        if "lookback_daily" in cfg: parts.append(f"dlb{cfg['lookback_daily']}")
-    elif mode == "weekly":
-        if "train_window_weeks" in cfg: parts.append(f"wwin{cfg['train_window_weeks']}")
-        if "lookback_weekly" in cfg: parts.append(f"wlb{cfg['lookback_weekly']}")
+    parts = []
     
-    if cfg["model_type"] == "TST" and "lookback" in cfg:
-        parts.append(f"lb{cfg['lookback']}")
-
-    # Add model-specific hyperparameters
-    if cfg["model_type"] == "XGBoost" and "xgb_params" in cfg:
-        key_map = {"max_depth": "md", "eta": "lr", "subsample": "ss", 
-                   "colsample_bytree": "cs_t", "colsample_bylevel": "cs_l",
-                   "reg_alpha": "a", "reg_lambda": "l2", "min_child_weight": "mcw", "gamma": "g"}
-        for k, v in cfg["xgb_params"].items():
-            short_key = key_map.get(k, k)
-            val_str = str(v).replace('.', 'p')
-            parts.append(f"{short_key}{val_str}")
+    # 1. Model type (required)
+    model_type = cfg["model_type"].lower()
+    parts.append(model_type)
     
-    elif cfg["model_type"] == "RNN":
-        if "hidden_size" in cfg: parts.append(f"hs{cfg['hidden_size']}")
-        if "num_layers" in cfg: parts.append(f"nl{cfg['num_layers']}")
-        if "epochs" in cfg: parts.append(f"ep{cfg['epochs']}")
-
-    elif cfg["model_type"] == "TST" and "tst_config" in cfg:
-        tst_cfg = cfg["tst_config"]
-        if "model_dim" in tst_cfg: parts.append(f"dim{tst_cfg['model_dim']}")
-        if "num_heads" in tst_cfg: parts.append(f"nh{tst_cfg['num_heads']}")
-
-    # Add common flags
+    # 2. Group by (required)
+    parts.append(cfg.get("mode", "unknown"))
+    
+    # 3. Training window and lookback
+    if cfg.get("mode") == "daily":
+        parts.append(f"tw{cfg.get('train_window_days', 0)}")
+        parts.append(f"lb{cfg.get('lookback_daily', 0)}")
+    else:  # weekly
+        parts.append(f"tw{cfg.get('train_window_weeks', 0)}")
+        parts.append(f"lb{cfg.get('lookback_weekly', 0)}")
+    
+    # 4. Model-specific parameters
+    if model_type == "rnn":
+        parts.append(f"drop{cfg.get('dropout_rate', 0)}")
+        parts.append(f"ep{cfg.get('epochs', 0)}")
+        parts.append(f"h{cfg.get('hidden_size', 0)}")
+        parts.append(f"l{cfg.get('num_layers', 1)}")
+        parts.append(f"lr{cfg.get('learning_rate', 0)}")
+        parts.append(f"b{cfg.get('batch_size', 32)}")
+        parts.append(cfg.get('rnn_type', 'lstm').lower())
+    elif model_type == "tst":
+        tst_cfg = cfg.get("tst_config", {})
+        parts.append(f"dim{tst_cfg.get('model_dim', 0)}")
+        parts.append(f"nh{tst_cfg.get('num_heads', 0)}")
+        parts.append(f"nl{tst_cfg.get('num_layers', 1)}")
+        parts.append(f"drop{tst_cfg.get('dropout', 0)}")
+        parts.append(f"ep{tst_cfg.get('epochs', 0)}")
+        parts.append(f"b{tst_cfg.get('batch_size', 32)}")
+        parts.append(f"lr{tst_cfg.get('learning_rate', 0)}")
+    elif model_type == "xgb":
+        xgb_params = cfg.get('xgb_params', {})
+        parts.append(f"md{xgb_params.get('max_depth', 0)}")
+        parts.append(f"lr{xgb_params.get('eta', 0)}")
+        parts.append(f"ss{xgb_params.get('subsample', 1.0)}")
+        parts.append(f"cst{xgb_params.get('colsample_bytree', 1.0)}")
+        parts.append(f"csl{xgb_params.get('colsample_bylevel', 1.0)}")
+        parts.append(f"mcw{xgb_params.get('min_child_weight', 1)}")
+        parts.append(f"g{xgb_params.get('gamma', 0)}")
+    
+    # 5. Feature engineering flags
+    if cfg.get("reduce_features_flag"):
+        parts.append(f"feat{cfg['reduce_features_flag'].lower()}")
+    
+    # 6. Multi-target mode
     if cfg.get("multi_target_mode"):
-        parts.append("mt")
-    if "reduce_features_flag" in cfg:
-        parts.append(cfg["reduce_features_flag"].lower())
-
-    # Add a concise representation of salary thresholds
-    thresholds = cfg.get("salary_thresholds")
+        parts.append("multi")
+    
+    # 7. Salary thresholds - include all thresholds
+    thresholds = cfg.get("salary_thresholds", [])
     if thresholds:
-        thresh_str = "sal-" + "-".join(map(lambda x: str(int(x * 100)), thresholds))
+        thresh_str = "sal" + "_".join(str(int(t * 100)) for t in thresholds) + "p"
         parts.append(thresh_str)
-
+    
+    # 8. Platform
+    if "platform" in cfg:
+        parts.append(cfg["platform"])
+    
+    # Clean and join parts
+    parts = [str(p).replace(".", "p") for p in parts]  # Replace dots with 'p'
     return "_".join(parts)
 
 

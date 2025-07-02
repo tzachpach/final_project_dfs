@@ -7,6 +7,7 @@ import multiprocessing
 import traceback
 import sys
 from multiprocessing import Manager, Process
+import json
 
 import mlflow
 import pandas as pd
@@ -29,7 +30,66 @@ MLFLOW_TRACKING_URI = f"file://{MLRUNS_DIR}"
 # Create artifacts directory if it doesn't exist
 os.makedirs("artifacts", exist_ok=True)
 
-# ── one‑time data prep will be moved into main() ──────────────────
+def get_config_details(cfg):
+    """Build a descriptive string from config parameters."""
+    details = []
+    model_type = cfg.get('model_type', '').lower()
+    
+    # Common parameters
+    details.append(model_type)
+    details.append(cfg.get('mode', 'unknown'))
+    
+    if cfg.get('mode') == 'daily':
+        details.append(f"lkb{cfg.get('lookback_daily', 0)}")
+        details.append(f"trw{cfg.get('train_window_days', 0)}")
+    else:
+        details.append(f"lkb{cfg.get('lookback_weekly', 0)}")
+        details.append(f"trw{cfg.get('train_window_weeks', 0)}")
+    
+    # Model-specific parameters
+    if model_type == 'rnn':
+        details.extend([
+            f"h{cfg.get('hidden_size', 0)}",
+            f"l{cfg.get('num_layers', 1)}",
+            f"dr{cfg.get('dropout_rate', 0)}",
+            f"ep{cfg.get('epochs', 0)}",
+            cfg.get('rnn_type', 'lstm').lower()
+        ])
+    elif model_type == 'xgb':
+        xgb_params = cfg.get('xgb_params', {})
+        details.extend([
+            f"md{xgb_params.get('max_depth', 0)}",
+            f"lr{xgb_params.get('learning_rate', 0)}",
+            f"ss{xgb_params.get('subsample', 1.0)}"
+        ])
+    
+    return '_'.join(str(d) for d in details)
+
+def get_output_dirs(cfg):
+    """Create and return standardized output directory structure."""
+    # Create base run directory name
+    config_details = get_config_details(cfg)
+    base_dir = os.path.join("results", config_details)
+    
+    # Define subdirectories
+    dirs = {
+        "base": base_dir,
+        "models": os.path.join(base_dir, "models"),
+        "predictions": os.path.join(base_dir, "predictions"),
+        "lineup": os.path.join(base_dir, "lineup"),
+        "metrics": os.path.join(base_dir, "metrics")
+    }
+    
+    # Create all directories
+    for d in dirs.values():
+        os.makedirs(d, exist_ok=True)
+    
+    # Save config
+    config_path = os.path.join(base_dir, "config.json")
+    with open(config_path, 'w') as f:
+        json.dump(cfg, f, indent=2)
+    
+    return dirs
 
 # Global variables for worker processes
 worker_enriched_df = None
@@ -80,6 +140,11 @@ def run_one_cfg(cfg):
 
         t0 = time.time()
         print(f"Running {cfg['run_name']}...")
+        
+        # Create standardized output directories
+        dirs = get_output_dirs(cfg)
+        
+        # Get predictions
         preds = get_predictions_df(cfg, worker_enriched_df)
         _log_progress(cfg['run_name'], 'Prediction')
 
@@ -88,38 +153,43 @@ def run_one_cfg(cfg):
             print(f"Empty predictions for {cfg['run_name']}. Skipping.")
             return "SKIPPED"
 
+        # Save predictions
+        predictions_path = os.path.join(dirs["predictions"], "predictions.csv")
+        preds.to_csv(predictions_path, index=False)
+        mlflow.log_artifact(predictions_path)
+
+        # Generate and save lineup
         lineup = get_lineup(preds)
         _log_progress(cfg['run_name'], 'Lineup')
+        lineup_path = os.path.join(dirs["lineup"], "lineups.csv")
+        lineup.to_csv(lineup_path, index=False)
+        mlflow.log_artifact(lineup_path)
 
+        # Evaluate results
         kpis, pct = evaluate_results(preds, lineup, worker_contests_df)
         _log_progress(cfg['run_name'], 'Evaluation')
 
+        # Clean and save metrics
         clean_kpis = {k: (v if pd.notna(v) else -1.0) for k, v in kpis.items()}
-
-        mlflow.log_metrics(clean_kpis)
-        mlflow.log_metric("runtime_sec", round(time.time() - t0, 2))
-
-        formatted_kpis = format_metrics_for_logging(clean_kpis)
-        # Log the formatted metrics as tags so they appear as-is in the UI (MLflow metrics must be float)
-        for key, value in formatted_kpis.items():
-            mlflow.set_tag(key + "_formatted", value)
-
-        # Isolate each run's output to avoid conflicts
-        base_run_dir = Path(urlparse(mlflow.get_artifact_uri()).path)
-        run_dir = base_run_dir / cfg["run_name"]
-        run_dir.mkdir(parents=True, exist_ok=True)
-
-        lineup_path = run_dir / f"{cfg['run_name']}_{uuid.uuid4().hex[:6]}_lineup.csv"
-        lineup.to_csv(lineup_path, index=False)
-
-        # save artefacts
-        pct_path = run_dir / f"{cfg['run_name']}_{uuid.uuid4().hex[:6]}_percentiles.csv"
+        
+        # Save KPIs
+        kpi_path = os.path.join(dirs["metrics"], "kpis.csv")
+        pd.DataFrame([clean_kpis]).to_csv(kpi_path, index=False)
+        mlflow.log_artifact(kpi_path)
+        
+        # Save percentiles
+        pct_path = os.path.join(dirs["metrics"], "percentiles.csv")
         pct.to_csv(pct_path, index=False)
         mlflow.log_artifact(pct_path)
 
-        kpi_path = run_dir / f"{cfg['run_name']}_kpis.csv"
-        pd.DataFrame([clean_kpis]).to_csv(kpi_path, index=False)
-        mlflow.log_artifact(kpi_path)
+        # Log metrics to MLflow
+        mlflow.log_metrics(clean_kpis)
+        mlflow.log_metric("runtime_sec", round(time.time() - t0, 2))
+
+        # Log formatted metrics as tags
+        formatted_kpis = format_metrics_for_logging(clean_kpis)
+        for key, value in formatted_kpis.items():
+            mlflow.set_tag(key + "_formatted", value)
         
         return "SUCCESS"
 

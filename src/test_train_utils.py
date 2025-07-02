@@ -1,5 +1,6 @@
 import os
 import pickle
+import json
 from functools import reduce
 from pathlib import Path
 
@@ -30,8 +31,41 @@ def rolling_train_test_for_xgb(
     output_dir=None,
     quantile_label=None,
 ):
-    model_dir = "output/models"
-    os.makedirs(model_dir, exist_ok=True)
+    # Create standardized output directory structure
+    if output_dir:
+        # Build model name from parameters
+        model_name = f"xgb_{group_by}"
+        model_name += f"_tw{train_window}"
+        if xgb_param_dict:
+            model_name += f"_md{xgb_param_dict.get('max_depth', 0)}"
+            model_name += f"_lr{str(xgb_param_dict.get('eta', 0)).replace('.', 'p')}"
+            model_name += f"_ss{str(xgb_param_dict.get('subsample', 1.0)).replace('.', 'p')}"
+        if reduce_features_flag:
+            model_name += f"_feat{reduce_features_flag.lower()}"
+        if quantile_label:
+            model_name += f"_sal{quantile_label}"
+        
+        # Create directories
+        base_dir = os.path.join("results", model_name)
+        models_dir = os.path.join(base_dir, "models")
+        predictions_dir = os.path.join(base_dir, "predictions")
+        os.makedirs(models_dir, exist_ok=True)
+        os.makedirs(predictions_dir, exist_ok=True)
+        
+        # Save config
+        config = {
+            "model_type": "XGBoost",
+            "mode": group_by,
+            "train_window": train_window,
+            "xgb_params": xgb_param_dict,
+            "reduce_features_flag": reduce_features_flag,
+            "quantile_label": quantile_label
+        }
+        with open(os.path.join(base_dir, "config.json"), "w") as f:
+            json.dump(config, f, indent=2)
+    else:
+        models_dir = "output/models"
+        os.makedirs(models_dir, exist_ok=True)
 
     # ---------------- group-col construction --------------
     if group_by == "date":
@@ -154,7 +188,7 @@ def rolling_train_test_for_xgb(
         all_yahoo_positions.extend(X_test["pos-yahoo"])
 
         if save_model:
-            model_path = f"{model_dir}/model_{group_by}_{current_group}.pkl"
+            model_path = f"{models_dir}/model_{group_by}_{current_group}.pkl"
             with open(model_path, "wb") as f:
                 pickle.dump(model, f)
 
@@ -182,10 +216,9 @@ def rolling_train_test_for_xgb(
     )
 
     if output_dir and quantile_label:
-        out = Path(output_dir) / f"fp_xgb_{cat}_{quantile_label}.csv"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        results_df.to_csv(out, index=False)
-        print(f"Saved XGB intermediate results → {out}")
+        predictions_file = os.path.join(predictions_dir, f"predictions_{cat}.csv")
+        results_df.to_csv(predictions_file, index=False)
+        print(f"Saved XGB predictions → {predictions_file}")
 
     return results_df
 
@@ -807,78 +840,58 @@ def rolling_train_test_rnn_fixed(
     output_dir: str = "output_csv",
     save_csv: bool = True,
 ):
-    """
-    A data-leak-safe rolling window trainer / predictor for RNNs that supports
-    both single-target and multi-target (per-stat) modes.
+    # Create standardized output directory structure
+    if output_dir and save_csv:
+        # Build model name from parameters
+        model_name = f"rnn_{group_by}"
+        model_name += f"_tw{train_window}"
+        model_name += f"_lb{lookback}"
+        model_name += f"_h{hidden_size}"
+        model_name += f"_l{num_layers}"
+        model_name += f"_lr{str(learning_rate).replace('.', 'p')}"
+        model_name += f"_drop{str(dropout_rate).replace('.', 'p')}"
+        model_name += f"_ep{epochs}"
+        model_name += f"_b{batch_size}"
+        model_name += f"_{rnn_type.lower()}"
+        if multi_target_mode:
+            model_name += "_multi"
+        if reduce_features_flag:
+            model_name += f"_feat{reduce_features_flag.lower()}"
+        if quantile_label:
+            model_name += f"_sal{quantile_label}"
+        
+        # Create directories
+        base_dir = os.path.join("results", model_name)
+        models_dir = os.path.join(base_dir, "models")
+        predictions_dir = os.path.join(base_dir, "predictions")
+        os.makedirs(models_dir, exist_ok=True)
+        os.makedirs(predictions_dir, exist_ok=True)
+        
+        # Save config
+        config = {
+            "model_type": "RNN",
+            "mode": group_by,
+            "train_window": train_window,
+            "hidden_size": hidden_size,
+            "num_layers": num_layers,
+            "learning_rate": learning_rate,
+            "dropout_rate": dropout_rate,
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "rnn_type": rnn_type,
+            "multi_target_mode": multi_target_mode,
+            "reduce_features_flag": reduce_features_flag,
+            "lookback": lookback,
+            "platform": platform,
+            "quantile_label": quantile_label
+        }
+        with open(os.path.join(base_dir, "config.json"), "w") as f:
+            json.dump(config, f, indent=2)
 
-    • The model is trained on the *train_window* previous groups.
-    • The evaluation targets are **only** the rows in *current_group*.
-    • Historical rows from current_group may still appear in the feature
-      sequences (look-back context) but never as targets in the same step.
-    """
-
-    # ── handle recursive multi-target mode ───────────────────────────────
-    if multi_target_mode:
-        os.makedirs(output_dir, exist_ok=True)
-        all_category_results = []
-
-        for cat in dfs_cats:                                # e.g. ['pts', 'ast', …]
-            cat_df = df.copy()
-            cat_res = rolling_train_test_rnn_fixed(
-                df=cat_df,
-                train_window=train_window,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                learning_rate=learning_rate,
-                dropout_rate=dropout_rate,
-                epochs=epochs,
-                batch_size=batch_size,
-                rnn_type=rnn_type,
-                multi_target_mode=False,                   # ← recursion stop
-                quantile_label=quantile_label,
-                reduce_features_flag=reduce_features_flag,
-                lookback=lookback,
-                group_by=group_by,
-                predict_ahead=predict_ahead,
-                platform=cat,                              # predict that stat
-                step_size=step_size,
-                output_dir=output_dir,
-                save_csv=False,                            # children handle no I/O
-            )
-
-            cat_res = cat_res.rename(
-                columns={"y_true": f"{cat}", "y_pred": f"{cat}_pred"}
-            )
-            out_path = os.path.join(output_dir, f"{cat}_{quantile_label}.csv")
-            cat_res.to_csv(out_path, index=False)
-            print(f"[multi-target] Saved {out_path}")
-            all_category_results.append(cat_res)
-
-        # ── merge per-stat results & compute FanDuel fp ─────────────────
-        combined = reduce(
-            lambda l, r: pd.merge(l, r, on=["player_name", "game_date"], how="outer"),
-            all_category_results,
-        ).drop_duplicates(["player_name", "game_date"])
-
-        combined["fp_fanduel_pred"] = combined.apply(
-            lambda row: calculate_fp_fanduel(row, pred_mode=True), axis=1
-        )
-        combined["fp_fanduel"] = combined.apply(calculate_fp_fanduel, axis=1)
-        combined["game_date"] = pd.to_datetime(combined["game_date"])
-
-        final_path = os.path.join(output_dir, f"fp_fanduel_{quantile_label}.csv")
-        combined.to_csv(final_path, index=False)
-        print(f"[multi-target] Combined predictions saved → {final_path}")
-        return combined
-
-    # ─────────────────────────────────────────────────────────────────────
-    # single-target mode from here
-    # ─────────────────────────────────────────────────────────────────────
     device = select_device()
     df = df.copy().dropna()
     df["game_date"] = pd.to_datetime(df["game_date"])
 
-    # build group label ---------------------------------------------------
     if group_by == "weekly":
         df["group_col"] = (
             df["game_date"].dt.year.astype(str) + "_" +
@@ -963,9 +976,19 @@ def rolling_train_test_rnn_fixed(
     results_df = pd.concat(results, ignore_index=True)
 
     if save_csv:
-        os.makedirs(output_dir, exist_ok=True)
-        fname = os.path.join(output_dir, f"fp_{platform}_{quantile_label}.csv")
-        results_df.to_csv(fname, index=False)
-        print(f"[single-target] Saved → {fname}")
+        if multi_target_mode:
+            # First rename the columns to match the current category
+            results_df = results_df.rename(
+                columns={"y_true": platform, "y_pred": f"{platform}_pred"}
+            )
+            # Save category-specific results
+            predictions_file = os.path.join(predictions_dir, f"predictions_{platform}.csv")
+            results_df.to_csv(predictions_file, index=False)
+            print(f"[multi-target] Saved {platform} predictions → {predictions_file}")
+        else:
+            # Save single-target results
+            predictions_file = os.path.join(predictions_dir, f"predictions_{platform}.csv")
+            results_df.to_csv(predictions_file, index=False)
+            print(f"[single-target] Saved predictions → {predictions_file}")
 
     return results_df
