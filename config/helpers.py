@@ -77,6 +77,7 @@ def get_predictions_df(cfg, enriched_df):
             tst_config=cfg["tst_config"],
             platform=cfg.get("platform", "fanduel"),
             save_model=cfg.get("save_model", True),
+            run_name=cfg.get("run_name"),
         )
         return predictions
 
@@ -198,10 +199,10 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
                                 valid_gt_idx, f"fp_{platform}_pred"
                             ].sum(),
                             f"{prefix}_GT_salary": df_gt.loc[
-                                valid_gt_idx, f"{platform}_salary"
+                                valid_gt_idx, salary_column
                             ].sum(),
                             f"{prefix}_predicted_salary": df_pred.loc[
-                                valid_pred_idx, f"{platform}_salary"
+                                valid_pred_idx, salary_column
                             ].sum(),
                             f"{prefix}_GT_duplicates": len(valid_gt_idx)
                             - len(np.unique(valid_gt_idx)),
