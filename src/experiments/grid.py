@@ -10,6 +10,7 @@ is yielded one‑by‑one.
 from itertools import product
 import json
 from copy import deepcopy
+from datetime import datetime
 
 from config.model_configs import model_configs
 
@@ -81,6 +82,11 @@ def _generate_run_name(cfg):
     
     # Clean and join parts
     parts = [str(p).replace(".", "p") for p in parts]  # Replace dots with 'p'
+    
+    # 9. Add timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    parts.append(timestamp)
+    
     return "_".join(parts)
 
 
