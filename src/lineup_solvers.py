@@ -64,7 +64,7 @@ def solve_ga(df_sl: pd.DataFrame, platform: str, pred_flag: bool) -> List[int]:
     tb.register("mate", tools.cxTwoPoint)
 
     def mutate(ind):
-        # simple “replace one player” mutation
+        # simple "replace one player" mutation
         idx = random.randrange(roster_sz)
         new = random.randrange(len(df_sl))
         while new in ind:
@@ -180,7 +180,7 @@ def solve_pulp(df, plat="fanduel", pred=True):
                 for i in df.index
                 if p in str(df.at[i, f"{plat}_position"]).split("/")
             )
-            == k
+            >= k
         )
 
     prob.solve(PULP_CBC_CMD(msg=False))  # or PULP_HIGHSLP

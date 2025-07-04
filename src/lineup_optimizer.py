@@ -55,8 +55,18 @@ def get_best_lineup(
         f"fp_{platform}_pred",
         f"{platform}_position",
     ]
+    
+    # Debug logging
+    log.info("Columns in df_day before dropna: %s", df_day.columns.tolist())
+    log.info("Required columns: %s", need)
+    log.info("Sample data before dropna:\n%s", df_day[need].head() if not df_day.empty else "Empty DataFrame")
+    
     df_day = df_day.dropna(subset=need)
     df_day = df_day.replace([np.inf, -np.inf], np.nan).dropna(subset=need)
+
+    # More debug logging
+    log.info("Rows after dropna: %d", len(df_day))
+    log.info("Sample data after dropna:\n%s", df_day[need].head() if not df_day.empty else "Empty DataFrame")
 
     # Check if we have enough players for a valid roster
     roster_size = sum(salary_constraints[platform]["positions"].values())

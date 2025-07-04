@@ -2,6 +2,8 @@ import pandas as pd
 import os
 from datetime import datetime
 import mlflow
+import json
+from typing import Tuple, List, Dict
 
 from config.constants import PROJECT_ROOT
 from src.test_train_utils import prepare_train_test_rnn_data_fixed
@@ -91,6 +93,14 @@ def rolling_train_test_tst_fixed(
         all_category_results = []
         for cat in dfs_cats:
             cat_df = df.copy()
+            # Rename columns to match expected format
+            if f"{cat}_position" in cat_df.columns:
+                cat_df[f"pos-{cat}"] = cat_df[f"{cat}_position"]
+                cat_df.drop(columns=[f"{cat}_position"], inplace=True)
+            if f"{cat}_salary" in cat_df.columns:
+                cat_df[f"salary-{cat}"] = cat_df[f"{cat}_salary"]
+                cat_df.drop(columns=[f"{cat}_salary"], inplace=True)
+
             cat_res = rolling_train_test_tst_fixed(
                 df=cat_df,
                 train_window=train_window,
@@ -119,6 +129,7 @@ def rolling_train_test_tst_fixed(
             cat_res.to_csv(out_path, index=False)
             print(f"[multi-target] Saved {out_path}")
             all_category_results.append(cat_res)
+
         combined = reduce(
             lambda l, r: pd.merge(l, r, on=["player_name", "game_date"], how="outer"),
             all_category_results,
@@ -133,9 +144,65 @@ def rolling_train_test_tst_fixed(
         print(f"[multi-target] Combined predictions saved → {final_path}")
         return combined
 
+    # Create standardized output directory structure
+    if output_dir and save_csv:
+        # Build model name from parameters
+        model_name = f"tst_{group_by}"
+        model_name += f"_tw{train_window}"
+        model_name += f"_lb{lookback}"
+        model_name += f"_md{model_dim}"
+        model_name += f"_h{num_heads}"
+        model_name += f"_l{num_layers}"
+        model_name += f"_lr{str(learning_rate).replace('.', 'p')}"
+        model_name += f"_drop{str(dropout_rate).replace('.', 'p')}"
+        model_name += f"_ep{epochs}"
+        model_name += f"_b{batch_size}"
+        if multi_target_mode:
+            model_name += "_multi"
+        if reduce_features_flag:
+            model_name += f"_feat{reduce_features_flag.lower()}"
+        if quantile_label:
+            model_name += f"_sal{quantile_label}"
+        
+        # Create directories
+        base_dir = os.path.join("results", model_name)
+        models_dir = os.path.join(base_dir, "models")
+        predictions_dir = os.path.join(base_dir, "predictions")
+        os.makedirs(models_dir, exist_ok=True)
+        os.makedirs(predictions_dir, exist_ok=True)
+        
+        # Save config
+        config = {
+            "model_type": "TST",
+            "mode": group_by,
+            "train_window": train_window,
+            "model_dim": model_dim,
+            "num_heads": num_heads,
+            "num_layers": num_layers,
+            "learning_rate": learning_rate,
+            "dropout_rate": dropout_rate,
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "multi_target_mode": multi_target_mode,
+            "reduce_features_flag": reduce_features_flag,
+            "lookback": lookback,
+            "platform": platform,
+            "quantile_label": quantile_label
+        }
+        with open(os.path.join(base_dir, "config.json"), "w") as f:
+            json.dump(config, f, indent=2)
+
     device = select_device()
     df = df.copy().dropna()
     df["game_date"] = pd.to_datetime(df["game_date"])
+
+    # Rename columns to match expected format
+    if f"{platform}_position" in df.columns:
+        df[f"pos-{platform}"] = df[f"{platform}_position"]
+        df.drop(columns=[f"{platform}_position"], inplace=True)
+    if f"{platform}_salary" in df.columns:
+        df[f"salary-{platform}"] = df[f"{platform}_salary"]
+        df.drop(columns=[f"{platform}_salary"], inplace=True)
 
     if group_by == "weekly":
         df["group_col"] = (
@@ -241,26 +308,57 @@ def predict_fp_tst_q(
     tst_config: dict,
     platform: str = "fanduel",
     save_model: bool = True,
+    run_name: str = None,
 ):
     """
-    Args:
-        tst_config (dict): Should contain model_dim, num_heads, num_layers, dropout, epochs, batch_size, learning_rate
+    Creates multiple sub-DataFrames based on a descending list of salary quantile thresholds,
+    trains a rolling TST model on each sub-DataFrame, and concatenates the predictions.
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = PROJECT_ROOT / "output_csv" / f"tst_{timestamp}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if mode not in ["daily", "weekly"]:
-        raise ValueError("mode must be 'daily' or 'weekly'.")
     if not salary_thresholds:
-        salary_thresholds = [0.0]
-    if any(
-        salary_thresholds[i] < salary_thresholds[i + 1]
-        for i in range(len(salary_thresholds) - 1)
-    ):
-        raise ValueError(
-            "salary_thresholds must be in descending order, e.g. [0.9,0.6,0.0]."
-        )
+        salary_thresholds = [0.0]  # Default: use all players
+
+    # Determine lookback based on mode
     lookback = lookback_daily if mode == "daily" else lookback_weekly
+
+    # Use provided run_name or generate one
+    if run_name is None:
+        run_name = f"tst_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    output_dir = os.path.join("results", run_name)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save config
+    config = {
+        "model_type": "TST",
+        "mode": mode,
+        "train_window_days": train_window_days,
+        "train_window_weeks": train_window_weeks,
+        "lookback_daily": lookback_daily,
+        "lookback_weekly": lookback_weekly,
+        "salary_thresholds": salary_thresholds,
+        "multi_target_mode": multi_target_mode,
+        "predict_ahead": predict_ahead,
+        "step_size": step_size,
+        "reduce_features_flag": reduce_features_flag,
+        "tst_config": tst_config,
+        "platform": platform,
+        "save_model": save_model
+    }
+    with open(os.path.join(output_dir, "config.json"), "w") as f:
+        json.dump(config, f, indent=2)
+
+    # Create model and predictions directories
+    models_dir = os.path.join(output_dir, "models")
+    predictions_dir = os.path.join(output_dir, "predictions")
+    os.makedirs(models_dir, exist_ok=True)
+    os.makedirs(predictions_dir, exist_ok=True)
+
+    # Prepare data
+    local_df = df.copy()
+    local_df["salary_quantile"] = local_df.groupby("game_date")["salary-fanduel"].transform(
+        lambda x: x.rank(pct=True)
+    )
+
     all_bin_results = []
 
     def train_tst_for_bin(bin_df: pd.DataFrame, bin_label: str) -> pd.DataFrame:
@@ -268,6 +366,14 @@ def predict_fp_tst_q(
             print(f"[WARN] Bin '{bin_label}' is empty. Skipping.")
             return pd.DataFrame()
         print(f"\n=== Training TST bin '{bin_label}' with {len(bin_df)} rows. ===")
+
+        # Rename columns to match expected format
+        if f"{platform}_position" in bin_df.columns:
+            bin_df[f"pos-{platform}"] = bin_df[f"{platform}_position"]
+            bin_df.drop(columns=[f"{platform}_position"], inplace=True)
+        if f"{platform}_salary" in bin_df.columns:
+            bin_df[f"salary-{platform}"] = bin_df[f"{platform}_salary"]
+            bin_df.drop(columns=[f"{platform}_salary"], inplace=True)
 
         results_df = rolling_train_test_tst_fixed(
             df=bin_df,
@@ -286,24 +392,34 @@ def predict_fp_tst_q(
             platform=platform,
             step_size=step_size,
             quantile_label=bin_label,
-            output_dir=output_dir,
+            output_dir=predictions_dir,
             reduce_features_flag=reduce_features_flag,
         )
 
         if results_df.empty:
             return pd.DataFrame()
 
-        # Merge with original columns for lookup, same as in RNN pipeline
+        # Now we want to merge partial results with the original columns
+        # so we keep [player_name, game_id, game_date, etc.].
         keep_cols = [
-            "player_name", "game_id", "game_date", "minutes_played", "team_abbreviation",
-            "salary-fanduel", "salary-draftkings", "salary-yahoo",
-            "pos-fanduel", "pos-draftkings", "pos-yahoo",
+            "player_name",
+            "game_id",
+            "game_date",
+            "minutes_played",
+            "team_abbreviation",
+            "salary-fanduel",
+            "salary-draftkings",
+            "salary-yahoo",
+            "pos-fanduel",
+            "pos-draftkings",
+            "pos-yahoo",
         ]
         keep_cols = [c for c in keep_cols if c in bin_df.columns]
         df_lookup = bin_df[keep_cols].drop_duplicates(
             subset=["player_name", "team_abbreviation", "game_id", "game_date"]
         )
-        
+
+        # Now rename the columns in results_df so we have "fp_<platform>" and "fp_<platform>_pred"
         results_df = results_df.rename(
             columns={"y_true": f"fp_{platform}", "y_pred": f"fp_{platform}_pred"}
         )
@@ -316,47 +432,58 @@ def predict_fp_tst_q(
             on=["player_name", "game_date"],
             how="left",
         )
-        
-        renamed = {
-            "salary-fanduel": "fanduel_salary",
-            "salary-draftkings": "draftkings_salary",
-            "salary-yahoo": "yahoo_salary",
-            "pos-fanduel": "fanduel_position",
-            "pos-draftkings": "draftkings_position",
-            "pos-yahoo": "yahoo_position",
-        }
-        merged_df = merged_df.rename(
-            columns={k: v for k, v in renamed.items() if k in merged_df.columns}
-        )
-        
+
+        # Add a bin_label column
         merged_df["_bin_label"] = bin_label
 
-        # Always write intermediate results per bin to CSV
-        csv_path = output_dir / f"fp_{platform}_{bin_label}.csv"
-        merged_df.to_csv(csv_path, index=False)
-        print(f"[INFO] Saved bin results to {csv_path}")
+        # Save bin results
+        bin_output_file = os.path.join(predictions_dir, f"fp_{platform}_{bin_label}.csv")
+        merged_df.to_csv(bin_output_file, index=False)
+        print(f"[INFO] Saved bin results to {bin_output_file}")
 
         return merged_df
 
-    if "salary_quantile" not in df.columns:
-        raise ValueError(
-            "DataFrame must have 'salary_quantile' column for bin slicing."
-        )
-    local_df = df.dropna(subset=["salary_quantile"]).copy()
+    # Process each salary threshold bin
     for i in range(len(salary_thresholds)):
         lower_q = salary_thresholds[i]
         if i == 0:
+            # top bin => quantile >= threshold
             bin_label = f"bin_top_{lower_q}"
             bin_slice = local_df[local_df["salary_quantile"] >= lower_q].copy()
         else:
-            upper_q = salary_thresholds[i - 1]
-            bin_label = f"bin_{lower_q}_{upper_q}"
-            bin_slice = local_df[(local_df["salary_quantile"] < upper_q) & (local_df["salary_quantile"] >= lower_q)].copy()
-        bin_result = train_tst_for_bin(bin_slice, bin_label)
-        if not bin_result.empty:
-            all_bin_results.append(bin_result)
-    if all_bin_results:
-        final_df = pd.concat(all_bin_results, ignore_index=True)
-    else:
-        final_df = pd.DataFrame()
+            higher_q = salary_thresholds[i - 1]
+            bin_label = f"bin_{lower_q}_to_{higher_q}"
+            bin_slice = local_df[
+                (local_df["salary_quantile"] >= lower_q)
+                & (local_df["salary_quantile"] < higher_q)
+            ].copy()
+
+        part_df = train_tst_for_bin(bin_slice, bin_label)
+        if not part_df.empty:
+            all_bin_results.append(part_df)
+
+    if not all_bin_results:
+        print("[WARN] No bins had data. Returning empty DataFrame.")
+        return pd.DataFrame()
+
+    # Vertically concatenate partial results from all bins
+    final_df = pd.concat(all_bin_results, ignore_index=True)
+
+    renamed = {
+        "salary-fanduel": "fanduel_salary",
+        "salary-draftkings": "draftkings_salary",
+        "salary-yahoo": "yahoo_salary",
+        "pos-fanduel": "fanduel_position",
+        "pos-draftkings": "draftkings_position",
+        "pos-yahoo": "yahoo_position",
+    }
+    final_df = final_df.rename(
+        columns={k: v for k, v in renamed.items() if k in final_df.columns}
+    )
+
+    # Save final combined results with original column names
+    final_output_file = os.path.join(predictions_dir, f"final_fp_{platform}.csv")
+    final_df.to_csv(final_output_file, index=False)
+    print(f"Saved final results to {final_output_file}")
+
     return final_df 

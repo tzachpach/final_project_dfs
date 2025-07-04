@@ -712,6 +712,15 @@ def prepare_train_test_rnn_data_fixed(
     • feature_df supplies look-back context (can overlap label_df)
     • label_df marks which rows are acceptable as *targets* for test
     """
+    # Rename columns to match expected format
+    for df in (train_df, feature_df, label_df):
+        if f"{target_platform}_position" in df.columns:
+            df[f"pos-{target_platform}"] = df[f"{target_platform}_position"]
+            df.drop(columns=[f"{target_platform}_position"], inplace=True)
+        if f"{target_platform}_salary" in df.columns:
+            df[f"salary-{target_platform}"] = df[f"{target_platform}_salary"]
+            df.drop(columns=[f"{target_platform}_salary"], inplace=True)
+
     for df in (train_df, feature_df, label_df):
         df["player_key"] = df["player_name"] + "_" + df["team_abbreviation"].str.upper()
     KEY = "player_key"
