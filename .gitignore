@@ -38,4 +38,6 @@ artifacts/
 # Distribution / packaging
 dist/
 build/
-*.egg-info/ 
+*.egg-info/ .DS_Store
+output_csv/.DS_Store
+src/experiments/.DS_Store
