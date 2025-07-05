@@ -1,6 +1,7 @@
 import pandas as pd
 
 from src.data_enrichment import (
+    add_interaction_features,
     add_time_dependent_features_v2,
     add_running_season_stats,
     add_last_season_data_with_extras,
@@ -23,6 +24,7 @@ def enrich_pipeline(df):
     # Rolling window stats
     df = add_time_dependent_features_v2(df, rolling_window=10)
 
+    df = add_interaction_features(df)
     # Running season stats (all within the same season)
     df = add_running_season_stats(df)
 
