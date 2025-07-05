@@ -94,4 +94,5 @@ same_game_cols = [
     "fp_fanduel",
     "fp_yahoo",
     "is_wl",
+    "starter"
 ]
