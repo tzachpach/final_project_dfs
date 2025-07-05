@@ -1,67 +1,79 @@
+import numpy as np
 import pandas as pd
 
-from config.constants import thresholds_for_exceptional_games
+from config.constants import thresholds_for_exceptional_games, hot_streaks_thresholds
 from config.dfs_categories import dfs_cats, same_game_cols
 from config.fantasy_point_calculation import calculate_exceptional_games_and_doubles
 
 
-def add_time_dependent_features_v2(df, rolling_window):
-    # Sort the DataFrame to ensure correct order for rolling calculations
+def add_time_dependent_features_v2(df: pd.DataFrame, rolling_window: int) -> pd.DataFrame:
     df = df.sort_values(["player_name", "game_date"]).reset_index(drop=True)
-
-    # Initialize a list to collect new features
     new_features_list = []
 
-    # Group by 'player_name'
-    grouped = df.groupby("player_name")
+    mean_cols = [f"{col}_rolling_{rolling_window}_day_avg" for col in same_game_cols]
+    std_cols = [f"{col}_rolling_{rolling_window}_day_std" for col in same_game_cols]
+    weighted_cols = [f"{col}_weighted_avg_{rolling_window}" for col in same_game_cols]
+    lag_cols_dict = {lag: [f"{col}_lag_{lag}" for col in same_game_cols] for lag in [1, 3]}
+    weights = np.arange(1, rolling_window + 1)
 
-    # For each group (player), compute rolling features
-    for name, group in grouped:
-        # Ensure the group is sorted by 'game_date'
+    for name, group in df.groupby("player_name"):
         group = group.sort_values("game_date").reset_index(drop=True)
-        # Initialize a DataFrame to hold features for this group
         features = pd.DataFrame(index=group.index)
 
-        # Rolling mean and std
-        rolling = (
-            group[same_game_cols].shift(1).rolling(window=rolling_window, min_periods=1)
-        )
-        rolling_mean = rolling.mean()
-        rolling_std = rolling.std()
-
-        # Rename columns
-        rolling_mean.columns = [
-            f"{col}_rolling_{rolling_window}_day_avg" for col in same_game_cols
-        ]
-        rolling_std.columns = [
-            f"{col}_rolling_{rolling_window}_day_std" for col in same_game_cols
+        rolling = group[same_game_cols].shift(1).rolling(window=rolling_window, min_periods=1)
+        feature_blocks = [
+            rolling.mean().rename(columns=dict(zip(same_game_cols, mean_cols))),
+            rolling.std().rename(columns=dict(zip(same_game_cols, std_cols))),
+            group[same_game_cols].shift(1).rolling(window=rolling_window, min_periods=1).apply(
+                lambda x: np.dot(x, weights[-len(x):]) / weights[-len(x):].sum(), raw=True
+            ).rename(columns=dict(zip(same_game_cols, weighted_cols)))
         ]
 
-        # Collect rolling features
-        features = pd.concat([features, rolling_mean, rolling_std], axis=1)
-
-        # Lags and diffs
         for lag in [1, 3]:
-            lag_features = group[same_game_cols].shift(lag)
-            lag_features.columns = [f"{col}_lag_{lag}" for col in same_game_cols]
-            # diff_features = group[same_game_cols].diff(lag)
-            # diff_features.columns = [f"{col}_diff_{lag}" for col in same_game_cols]
+            lagged = group[same_game_cols].shift(lag)
+            lagged.columns = lag_cols_dict[lag]
+            feature_blocks.append(lagged)
 
-            # Concatenate lag and diff features
-            features = pd.concat([features, lag_features], axis=1)
-
-        # Add 'player_name' and 'game_date' to features DataFrame
+        features = pd.concat(feature_blocks, axis=1)
         features["player_name"] = name
         features["game_date"] = group["game_date"].values
-
-        # Append the features DataFrame to the list
         new_features_list.append(features)
 
-    # Concatenate all the features into a single DataFrame
     new_features_df = pd.concat(new_features_list, ignore_index=True)
-
-    # Merge the new features DataFrame with the original DataFrame
     df = pd.merge(df, new_features_df, on=["player_name", "game_date"], how="left")
+
+    df["played_back_to_back"] = (df["days_rest_int"] == 0).astype(int)
+    df["rest_category"] = pd.cut(df["days_rest_int"], bins=[-1, 0, 1, 3, 10, np.inf], labels=["0", "1", "2-3", "4+", "10+"])
+    
+    df["salary_bucket"] = pd.qcut(df["salary-fanduel"], q=10, duplicates="drop")
+    df["position_salary"] = df["pos-fanduel"].astype(str) + "_" + df["salary_bucket"].astype(str)
+
+    for col, thresh in hot_streaks_thresholds.items():
+        if col in df.columns:
+            df[f"{col}_hot_streak"] = compute_hot_streak(df[col], threshold=thresh)
+
+    return df
+
+def compute_hot_streak(series, threshold, games=5, hot_games=3):
+    return series.shift(1).rolling(games, min_periods=1).apply(lambda x: (x >= threshold).sum() >= hot_games)
+
+def add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
+    interactions = {
+        "fg_pct_x_minutes": ("fg_pct_rolling_10_day_avg", "minutes_played_rolling_10_day_avg"),
+        "usg_x_ts_pct": ("usg_pct_x_rolling_10_day_avg", "ts_pct_rolling_10_day_avg"),
+        "minutes_x_usg": ("minutes_played_rolling_10_day_avg", "usg_pct_x_rolling_10_day_avg"),
+        "salary_x_fg_pct": ("salary-fanduel", "fg_pct_rolling_10_day_avg"),
+        "salary_x_minutes": ("salary-fanduel", "minutes_played_rolling_10_day_avg"),
+        "pace_x_minutes": ("pace_rolling_10_day_avg", "minutes_played_rolling_10_day_avg"),
+        "opp_def_x_minutes": ("opp_def_rating_last10_avg", "minutes_played_rolling_10_day_avg"),
+        "opp_dvp_pts_x_ts_pct": ("opp_dvp_pts_last10_avg", "ts_pct_rolling_10_day_avg"),
+        "fg_pct_hot_x_usg": ("fg_pct_hot_streak", "usg_pct_x_rolling_10_day_avg"),
+        "pts_hot_x_salary_q": ("pts_hot_streak", "salary_quantile"),
+    }
+
+    for feat_name, (col1, col2) in interactions.items():
+        if col1 in df.columns and col2 in df.columns:
+            df[feat_name] = df[col1] * df[col2]
 
     return df
 
@@ -442,6 +454,10 @@ def add_anticipated_defense_features(df):
     dvp_merge_cols = [col for col in dvp_merge_cols if col in dvp_game_totals.columns]
     dvp_for_merge = dvp_game_totals[dvp_merge_cols].copy()  # Use copy
 
+    # Calculate opponent days off
+    last_game = df.groupby("opponent_abbr")["game_date"].shift(1)
+    df["opp_days_rest"] = (df["game_date"] - last_game).dt.days.clip(lower=0).fillna(3)  # Cap at 3 as default
+    
     # Merge DvP stats back to the main df using the correct keys
     # This joins the calculated DvP for opponent O against position P on date D
     # to the main rows where a player with position P faced opponent O on date D.
