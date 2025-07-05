@@ -85,6 +85,17 @@ best_params = {
     "salary_threshold": 0.6,
 }
 
+hot_streaks_thresholds = {
+    "pts": 20,
+    "reb": 10,
+    "ast": 8,
+    "stl": 4,
+    "blk": 3,
+    "usg_pct_x": 0.2,
+    "fgm": 8,
+    "fga": 12,
+    "minutes_played": 30,
+}
 
 def select_device():
     """
