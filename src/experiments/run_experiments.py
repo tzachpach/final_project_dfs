@@ -223,7 +223,7 @@ def main():
     print(f"Found {len(configs)} configurations to run.")
 
     # Use all but 2 CPUs for safety, with a minimum of 1
-    num_processes = 3 #max(1, multiprocessing.cpu_count() - 2)
+    num_processes = max(1, multiprocessing.cpu_count() - 2)
     print(f"Running {len(configs)} configs on {num_processes} processes...")
     print("Each run's output is being saved to a log file in artifacts/run_logs/")
 

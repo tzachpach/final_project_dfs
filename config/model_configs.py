@@ -64,13 +64,13 @@ model_configs = [
         "lookback_daily": [10],   # sequence length for daily mode
         "lookback_weekly": [15],  # sequence length for weekly mode
 
-        "train_window_days": [30, 40],     # daily rolling window
-        "train_window_weeks": [8, 12],     # weekly rolling window
+        "train_window_days": [60, 90],     # daily rolling window
+        "train_window_weeks": [10, 15],     # weekly rolling window
 
         # Salary-binning — baseline (all players) + top-slice
         "salary_thresholds": [
             [0.0],          # all players
-            [0.9, 0.6, 0.0] # elite 10%, mid 30%, rest
+            [0.8, 0.5, 0.0] # elite 20%, mid 30%, rest
         ],
 
         # Evaluate both single-target and multi-target modes
@@ -82,9 +82,9 @@ model_configs = [
         # Transformer hyper-parameters – 2×2×2 grid  (total 8)
         "tst_config": [
             {"model_dim": 64,  "num_heads": 4, "num_layers": 2, "dropout": 0.1, "epochs": 10, "batch_size": 32, "learning_rate": 0.001},
-            {"model_dim": 64,  "num_heads": 4, "num_layers": 3, "dropout": 0.1, "epochs": 20, "batch_size": 32, "learning_rate": 0.0007},
+            {"model_dim": 64,  "num_heads": 4, "num_layers": 5, "dropout": 0.1, "epochs": 20, "batch_size": 32, "learning_rate": 0.0007},
             {"model_dim": 128, "num_heads": 8, "num_layers": 2, "dropout": 0.2, "epochs": 10, "batch_size": 32, "learning_rate": 0.001},
-            {"model_dim": 128, "num_heads": 8, "num_layers": 3, "dropout": 0.2, "epochs": 20, "batch_size": 32, "learning_rate": 0.0007},
+            {"model_dim": 128, "num_heads": 8, "num_layers": 5, "dropout": 0.2, "epochs": 20, "batch_size": 32, "learning_rate": 0.0007},
         ],
     },
 ]
