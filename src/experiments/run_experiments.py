@@ -112,8 +112,20 @@ def run_one_cfg(cfg):
         base_run_dir = Path("results") / cfg["run_name"]
         base_run_dir.mkdir(parents=True, exist_ok=True)
 
+        # Save KPIs
+        kpis_path = base_run_dir / "kpis.csv"
+        pd.DataFrame([kpis]).to_csv(kpis_path, index=False)
+        mlflow.log_artifact(kpis_path)
+
+        # Save predictions
+        preds_path = base_run_dir / "predictions.csv"
+        preds.to_csv(preds_path, index=False)
+
         lineup_path = base_run_dir / "lineup.csv"
         lineup.to_csv(lineup_path, index=False)
+
+        # Log prediction artifact to MLflow
+        mlflow.log_artifact(preds_path)
         
         kpis_dir = base_run_dir / Path("metrics")
         kpis_dir.mkdir(parents=True, exist_ok=True)

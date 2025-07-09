@@ -15,6 +15,23 @@ from functools import reduce
 from config.dfs_categories import dfs_cats
 from config.fantasy_point_calculation import calculate_fp_fanduel
 from config.constants import select_device
+from config.feature_selection_res import (
+    pts_features, reb_features, ast_features,
+    tov_features, stl_features, blk_features
+)
+
+# Map stat -> curated features
+FEATURE_MAP = {
+    "pts": pts_features,
+    "reb": reb_features,
+    "ast": ast_features,
+    "tov": tov_features,
+    "stl": stl_features,
+    "blk": blk_features,
+}
+
+# Union of all curated features (for single-target mode)
+FEATURE_UNION = sorted({f for feats in FEATURE_MAP.values() for f in feats})
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -100,6 +117,22 @@ def rolling_train_test_tst_fixed(
             if f"{cat}_salary" in cat_df.columns:
                 cat_df[f"salary-{cat}"] = cat_df[f"{cat}_salary"]
                 cat_df.drop(columns=[f"{cat}_salary"], inplace=True)
+
+            # -----------------------------------------------------------------
+            # Keep only curated features for this stat (plus mandatory columns)
+            # -----------------------------------------------------------------
+            mandatory_cols = [
+                "player_name", "game_id", "game_date", "minutes_played",
+                "team_abbreviation", "season_year", "week",
+                # salaries / positions will be renamed below
+                f"{cat}_salary", f"{cat}_position",
+                "salary-fanduel", "salary-draftkings", "salary-yahoo",
+                "pos-fanduel", "pos-draftkings", "pos-yahoo",
+            ]
+            # Ensure the stat label itself (or fp_<stat>) is kept
+            target_cols_here = {cat, f"fp_{cat}"}
+            keep_set = set(FEATURE_MAP.get(cat, [])) | set(mandatory_cols) | target_cols_here
+            cat_df = cat_df[[c for c in cat_df.columns if c in keep_set]]
 
             cat_res = rolling_train_test_tst_fixed(
                 df=cat_df,
@@ -366,6 +399,21 @@ def predict_fp_tst_q(
             print(f"[WARN] Bin '{bin_label}' is empty. Skipping.")
             return pd.DataFrame()
         print(f"\n=== Training TST bin '{bin_label}' with {len(bin_df)} rows. ===")
+
+        # --------------------------------------------------------------
+        # For single-target mode use the union of curated features
+        # --------------------------------------------------------------
+        mandatory_cols = [
+            "player_name", "game_id", "game_date", "minutes_played",
+            "team_abbreviation", "season_year", "week",
+            f"{platform}_salary", f"{platform}_position",
+            "salary-fanduel", "salary-draftkings", "salary-yahoo",
+            "pos-fanduel", "pos-draftkings", "pos-yahoo",
+        ]
+        target_col_single = f"fp_{platform}"
+        if not multi_target_mode:
+            keep_set = set(FEATURE_UNION) | set(mandatory_cols) | {target_col_single}
+            bin_df = bin_df[[c for c in bin_df.columns if c in keep_set]]
 
         # Rename columns to match expected format
         if f"{platform}_position" in bin_df.columns:

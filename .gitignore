@@ -41,3 +41,7 @@ build/
 *.egg-info/ .DS_Store
 output_csv/.DS_Store
 src/experiments/.DS_Store
+*/.DS_Store
+
+# macOS cruft
+.DS_Store

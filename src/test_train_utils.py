@@ -33,20 +33,10 @@ def rolling_train_test_for_xgb(
 ):
     # Create standardized output directory structure
     if output_dir:
-        # Build model name from parameters
-        model_name = f"xgb_{group_by}"
-        model_name += f"_tw{train_window}"
-        if xgb_param_dict:
-            model_name += f"_md{xgb_param_dict.get('max_depth', 0)}"
-            model_name += f"_lr{str(xgb_param_dict.get('eta', 0)).replace('.', 'p')}"
-            model_name += f"_ss{str(xgb_param_dict.get('subsample', 1.0)).replace('.', 'p')}"
-        if reduce_features_flag:
-            model_name += f"_feat{reduce_features_flag.lower()}"
-        if quantile_label:
-            model_name += f"_sal{quantile_label}"
-        
-        # Create directories
-        base_dir = os.path.join("results", model_name)
+        # Use the caller-provided directory as the base directory to avoid
+        # duplicate/legacy folder schemes.
+        # If the path is not absolute, place it under the project-level "results".
+        base_dir = output_dir if os.path.isabs(str(output_dir)) else os.path.join("results", output_dir)
         models_dir = os.path.join(base_dir, "models")
         predictions_dir = os.path.join(base_dir, "predictions")
         os.makedirs(models_dir, exist_ok=True)
@@ -278,11 +268,21 @@ def prepare_train_test_rnn_data(
     if target_col not in train_df.columns:
         raise ValueError(f"column '{target_col}' not found")
 
-    # 2) one-hot categorical columns --------------------------------------
+    # 2) exclusion list (needed for CAT detection)
+    EXCLUDE = {
+        "player_name", KEY, "game_id", "game_date", "group_col",
+        "available_flag", "season_year", "fp_draftkings", "fp_fanduel", "fp_yahoo"
+    }
+
+    # 3) one-hot categorical columns --------------------------------------
+    # Expanded automatic categorical detection
     CAT = [
-        c
-        for c in train_df.columns
-        if "pos-" in c or c in ("team_abbreviation", "opponent_abbr")
+        c for c in train_df.columns
+        if (
+            (train_df[c].dtype == "object" or pd.api.types.is_categorical_dtype(train_df[c]))
+            and c not in same_game_cols
+            and c not in EXCLUDE
+        )
     ]
     train_df = pd.get_dummies(train_df, columns=CAT, drop_first=True)
     DESIGN = train_df.columns  # frozen
@@ -291,18 +291,6 @@ def prepare_train_test_rnn_data(
     )
 
     # 3) numeric feature set (raw) ---------------------------------------
-    EXCLUDE = {
-        "player_name",
-        KEY,
-        "game_id",
-        "game_date",
-        "group_col",
-        "available_flag",
-        "season_year",
-        "fp_draftkings",
-        "fp_fanduel",
-        "fp_yahoo",
-    }
     NUM_FEATS = [c for c in DESIGN if c not in EXCLUDE and c not in same_game_cols]
 
     # 4) fit / apply reducer (optional) -----------------------------------
@@ -732,13 +720,22 @@ def prepare_train_test_rnn_data_fixed(
     target_col = f"fp_{target_platform}" if f"fp_{target_platform}" in train_df.columns else target_platform
 
     # one-hot (fit design on train, reuse for others) ---------------------
-    CAT = [c for c in train_df.columns if "pos-" in c or c in ("team_abbreviation", "opponent_abbr")]
+    EXCL = {"player_name", KEY, "game_id", "game_date", "group_col",
+            "available_flag", "season_year", "fp_draftkings", "fp_fanduel", "fp_yahoo"}
+
+    # Expanded automatic categorical detection
+    CAT = [
+        c for c in train_df.columns
+        if (
+            (train_df[c].dtype == "object" or pd.api.types.is_categorical_dtype(train_df[c]))
+            and c not in same_game_cols
+            and c not in EXCL
+        )
+    ]
     train_df   = pd.get_dummies(train_df,   columns=CAT, drop_first=True)
     feature_df = pd.get_dummies(feature_df, columns=CAT, drop_first=True).reindex(columns=train_df.columns, fill_value=0)
     label_df   = pd.get_dummies(label_df,   columns=CAT, drop_first=True).reindex(columns=train_df.columns, fill_value=0)
 
-    EXCL = {"player_name", KEY, "game_id", "game_date", "group_col",
-            "available_flag", "season_year", "fp_draftkings", "fp_fanduel", "fp_yahoo"}
     NUM  = [c for c in train_df.columns if c not in EXCL and c not in same_game_cols]
 
     # optional reducer ----------------------------------------------------
@@ -870,7 +867,7 @@ def rolling_train_test_rnn_fixed(
             model_name += f"_sal{quantile_label}"
         
         # Create directories
-        base_dir = os.path.join("results", model_name)
+        base_dir = output_dir if os.path.isabs(str(output_dir)) else os.path.join("results", output_dir)
         models_dir = os.path.join(base_dir, "models")
         predictions_dir = os.path.join(base_dir, "predictions")
         os.makedirs(models_dir, exist_ok=True)

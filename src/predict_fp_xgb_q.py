@@ -4,6 +4,7 @@ from datetime import datetime
 
 from config.constants import PROJECT_ROOT
 from config.dfs_categories import same_game_cols, dfs_cats
+from config.feature_selection_res import *
 from config.fantasy_point_calculation import (
     calculate_fp_fanduel,
     calculate_fp_yahoo,
@@ -91,6 +92,19 @@ def predict_fp_xgb_q(
 
     final_bin_dfs = []  # store partial predictions from each bin
 
+    # ---------------------------------------------------------------------------
+    #   FEATURE MAP FOR MULTI-TARGET MODE
+    # ---------------------------------------------------------------------------
+
+    FEATURE_MAP = {
+        "pts": pts_features,
+        "reb": reb_features,
+        "ast": ast_features,
+        "tov": tov_features,
+        "stl": stl_features,
+        "blk": blk_features,
+    }
+
     def train_bin(df_bin, bin_label):
         """Perform rolling train/test for each DFS category on this bin's data."""
         if df_bin.empty:
@@ -98,13 +112,50 @@ def predict_fp_xgb_q(
             return pd.DataFrame()
 
         combined_df = pd.DataFrame()
-        # Prepare features for XGBoost (exclude same_game_cols)
-        features = df_bin.columns.difference(same_game_cols).tolist()
+        # ------------------------------------------------------------------
+        # Select feature subset
+        #   • In multi_target_mode  –> use the pre-selected per-stat features
+        #   • Otherwise            –> use *all* available features (minus leakage cols)
+        # ------------------------------------------------------------------
+
+        base_feature_pool = df_bin.columns.difference(same_game_cols).tolist()
 
         print(f"\n=== Training bin '{bin_label}' with {len(df_bin)} rows. ===")
         pred_cats = ["fp_fanduel"] if not multi_target_mode else dfs_cats
         for cat in pred_cats:
-            X = df_bin[features]
+            if multi_target_mode:
+                # Use stat-specific features; fall back to full pool if none found
+                stat_features = FEATURE_MAP.get(cat, [])
+                selected_features = [f for f in stat_features if f in df_bin.columns]
+
+                if not selected_features:
+                    print(
+                        f"[WARN] No matched features for '{cat}' in df; falling back to full pool ({len(base_feature_pool)})"
+                    )
+                    selected_features = base_feature_pool
+            else:
+                selected_features = base_feature_pool
+
+            print(f"   · {cat}: using {len(selected_features)} features")
+
+            # Ensure mandatory columns required by rolling_train_test_for_xgb are present
+            mandatory_cols = [
+                "season_year",
+                "game_date",
+                "team_abbreviation",
+                "player_name",
+                "opponent_abbr",
+                "pos-draftkings",
+                "pos-fanduel",
+                "pos-yahoo",
+                "salary-fanduel",
+                "salary-draftkings",
+                "salary-yahoo",
+            ]
+
+            cols_for_model = selected_features + [c for c in mandatory_cols if c in df_bin.columns and c not in selected_features]
+
+            X = df_bin[cols_for_model]
             y = df_bin[cat]
             # If rolling_train_test_for_xgb can handle xgb_param_dict, pass it in.
             # Otherwise we ignore it. We'll show an example ignoring for now:
@@ -120,6 +171,7 @@ def predict_fp_xgb_q(
                 output_dir=output_dir,
                 quantile_label=bin_label,
                 reduce_features_flag=reduce_features_flag,
+                # Store feature list for traceability
             )
 
             cat_results.rename(
