@@ -85,7 +85,7 @@ def get_predictions_df(cfg, enriched_df):
     return pd.DataFrame()
 
 
-def get_lineup(df, solvers=("GA", "ILP", "PULP")):
+def get_lineup(df, solvers=("GA", "ILP")):
     """
     solvers: tuple/list like ("GA",) or ("GA","ILP")
     """
@@ -93,9 +93,10 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
     out_rows = []
 
     for date in df["game_date"].unique():
-
-        # check that there are enough players for a full roster, given positional constraints
         df_date = df[df["game_date"] == date]
+        season_year = df_date["season_year"].iloc[0]
+            # check that there are enough players for a full roster, given positional constraints
+
         insufficient_positions = []
         skip_to_next_date = False
 
@@ -179,6 +180,7 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
                     prefix = f"{solver.lower()}_{platform}"
                     row.update(
                         {
+                            "season_year": season_year,
                             f"{prefix}_player_pool_count": len(df_gt),
                             f"{prefix}_GT_players": df_gt.loc[
                                 valid_gt_idx, "player_name"
@@ -199,10 +201,10 @@ def get_lineup(df, solvers=("GA", "ILP", "PULP")):
                                 valid_gt_idx, f"fp_{platform}_pred"
                             ].sum(),
                             f"{prefix}_GT_salary": df_gt.loc[
-                                valid_gt_idx, salary_column
+                                valid_gt_idx, f"{platform}_salary"
                             ].sum(),
                             f"{prefix}_predicted_salary": df_pred.loc[
-                                valid_pred_idx, salary_column
+                                valid_pred_idx, f"{platform}_salary"
                             ].sum(),
                             f"{prefix}_GT_duplicates": len(valid_gt_idx)
                             - len(np.unique(valid_gt_idx)),
