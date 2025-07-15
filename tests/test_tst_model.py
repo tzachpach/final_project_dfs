@@ -1,5 +1,4 @@
 import torch
-import pytest
 from models.tst_model import TimeSeriesTransformer
 
 def test_tst_forward_pass():

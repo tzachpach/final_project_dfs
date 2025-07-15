@@ -1,9 +1,7 @@
 import logging
 import os
 import time
-import uuid
 from pathlib import Path
-from urllib.parse import urlparse
 import multiprocessing
 import traceback
 import sys
@@ -15,7 +13,7 @@ import pandas as pd
 from config.helpers import get_predictions_df, get_lineup
 from src.experiments.grid import iter_cfgs
 from src.experiments.ml_utils import log_cfg
-from src.evaluate_results import evaluate_results, format_metrics_for_logging
+from src.evaluate_results import evaluate_results
 from config.pipelines import preprocess_pipeline, enrich_pipeline
 
 import warnings

@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from config.constants import salary_constraints
-from src.lineup_solvers import solve_ga, solve_ilp, solve_pulp  # , solve_mip
+from src.lineup_solvers import solve_ga, solve_ilp  # , solve_mip
 
 log = logging.getLogger(__name__)
 

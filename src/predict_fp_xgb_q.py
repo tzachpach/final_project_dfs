@@ -7,8 +7,6 @@ from config.dfs_categories import same_game_cols, dfs_cats
 from config.feature_selection_res import *
 from config.fantasy_point_calculation import (
     calculate_fp_fanduel,
-    calculate_fp_yahoo,
-    calculate_fp_draftkings,
 )
 from src.test_train_utils import rolling_train_test_for_xgb
 
