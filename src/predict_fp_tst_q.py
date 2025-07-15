@@ -4,6 +4,8 @@ from datetime import datetime
 import mlflow
 import json
 from typing import Tuple, List, Dict
+from pathlib import Path
+import shutil
 
 from config.constants import PROJECT_ROOT
 from src.test_train_utils import prepare_train_test_rnn_data_fixed
@@ -108,7 +110,32 @@ def rolling_train_test_tst_fixed(
     if multi_target_mode:
         os.makedirs(output_dir, exist_ok=True)
         all_category_results = []
+        # Temporary shortcut: reuse predictions previously computed in a specific directory
+        PREV_PRED_DIR = Path(
+            "results/tst_daily_tw60_lb15_dim64_nh4_nl2_drop0p1_ep10_b32_lr0p001_multi_sal0p_20250710_233455/predictions"
+        )
+
         for cat in dfs_cats:
+            out_path = os.path.join(output_dir, f"{cat}_{quantile_label}.csv")
+
+            # Try to copy from previous directory if available
+            prev_file = PREV_PRED_DIR / f"{cat}_{quantile_label}.csv"
+            if prev_file.exists():
+                print(f"[multi-target] Copying {prev_file} → {out_path}")
+                shutil.copy(prev_file, out_path)
+                cat_res = pd.read_csv(out_path)
+                cat_res['game_date'] = pd.to_datetime(cat_res['game_date'])
+                # Ensure season_year column exists (older files may miss it)
+                if 'season_year' not in cat_res.columns:
+                    cat_res['season_year'] = cat_res['game_date'].apply(lambda d: f"{(d.year - (d.month < 10))}-{((d.year) % 100) if d.month>=10 else ((d.year-1)%100):02d}")
+                # Avoid duplicate season_year later
+                if all_category_results and 'season_year' in cat_res.columns:
+                    cat_res = cat_res.drop(columns=['season_year'])
+                all_category_results.append(cat_res)
+                continue
+
+            # ---- otherwise compute from scratch ----
+
             cat_df = df.copy()
             # Rename columns to match expected format
             if f"{cat}_position" in cat_df.columns:
@@ -161,6 +188,11 @@ def rolling_train_test_tst_fixed(
             out_path = os.path.join(output_dir, f"{cat}_{quantile_label}.csv")
             cat_res.to_csv(out_path, index=False)
             print(f"[multi-target] Saved {out_path}")
+            # Keep 'season_year' only from the first category to avoid
+            # duplicate columns (season_year_x / _y) during successive merges.
+            if all_category_results:
+                cat_res = cat_res.drop(columns=[c for c in cat_res.columns if c == "season_year"])
+
             all_category_results.append(cat_res)
 
         combined = reduce(
@@ -260,6 +292,7 @@ def rolling_train_test_tst_fixed(
         train_df   = df[df["group_col"].isin(train_groups)].copy()
         feature_df = df[df["group_col"].isin(feature_groups)].copy()
         label_df   = df[df["group_col"] == current_group].copy()
+        season_year = label_df['season_year'].iloc[0]
 
         if train_df.empty or label_df.empty:
             print("   · skipped (empty split)")
@@ -309,6 +342,8 @@ def rolling_train_test_tst_fixed(
             y_true.append(inv_true)
 
         step_df = pd.DataFrame({
+            # d_te includes numpy.datetime64 which lack .year attribute – convert via pandas
+            "season_year": season_year,
             "player_name": [player_key_to_name(pk) for pk in p_te],
             "game_date": d_te,
             "y_true": y_true,
@@ -415,14 +450,6 @@ def predict_fp_tst_q(
             keep_set = set(FEATURE_UNION) | set(mandatory_cols) | {target_col_single}
             bin_df = bin_df[[c for c in bin_df.columns if c in keep_set]]
 
-        # Rename columns to match expected format
-        if f"{platform}_position" in bin_df.columns:
-            bin_df[f"pos-{platform}"] = bin_df[f"{platform}_position"]
-            bin_df.drop(columns=[f"{platform}_position"], inplace=True)
-        if f"{platform}_salary" in bin_df.columns:
-            bin_df[f"salary-{platform}"] = bin_df[f"{platform}_salary"]
-            bin_df.drop(columns=[f"{platform}_salary"], inplace=True)
-
         results_df = rolling_train_test_tst_fixed(
             df=bin_df,
             train_window=(train_window_days if mode == "daily" else train_window_weeks),
@@ -474,7 +501,7 @@ def predict_fp_tst_q(
 
         merged_df = pd.merge(
             results_df[
-                ["player_name", "game_date", f"fp_{platform}", f"fp_{platform}_pred"]
+                ["player_name", "game_date", f"fp_{platform}", f"fp_{platform}_pred", "season_year"]
             ],
             df_lookup,
             on=["player_name", "game_date"],
