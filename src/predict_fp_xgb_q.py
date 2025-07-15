@@ -184,6 +184,7 @@ def predict_fp_xgb_q(
                     combined_df,
                     cat_results,
                     on=[
+                        "season_year",
                         "player_name",
                         "minutes_played",
                         "game_date",
