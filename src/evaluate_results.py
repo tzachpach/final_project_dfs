@@ -257,64 +257,97 @@ def evaluate_results(
     contests_df,
     top_percentiles=[20, 10],
     salary_col="fanduel_salary",
+    group_by_season: bool = False,
     # model_pickle_path=None,
     # shap_data=None,
     # shap_top_n=10
 ):
     """
-    1) Compute overall RMSE/MAE/Bias for each category on entire population.
-    2) Compute percentile data (e.g. top_20%, top_10%, + all_pop).
-    3) Evaluate lineup vs contests (win rate, profit).
-    4) Optionally run SHAP on 'shap_data' with the loaded model to get top N features.
+    Main evaluation utility with two modes controlled by `group_by_season`.
 
-    Returns:
-      df_overall_results: 1-row DataFrame with columns:
-         - [cat_RMSE, cat_MAE, cat_Bias for each cat],
-         - contest metrics,
-         - model_pickle_path
-      df_percentile_data: multiple rows (one for top_20, one for top_10, one for all_pop),
-         each row has columns [percentile, cat_RMSE, cat_MAE, cat_Bias,...]
-      top_features_dict: a dict { feature_name: shap_value } for the top N features, or {}
-                         if no shap_data or if something fails.
+    If `group_by_season == False` (default):
+        1) Compute overall RMSE/MAE/Bias for each category on the **entire** population.
+        2) Compute percentile data (e.g. top_20%, top_10%, + all_pop).
+        3) Evaluate lineup vs contests (win rate, profit) on the entire population.
+
+        Returns
+        -------
+        res_dict : dict
+            KPI dict aggregating the whole dataset.
+        df_percentile_data : pd.DataFrame
+            Multiple rows (one for top_20, one for top_10, one for all_pop), each row
+            has columns [percentile, cat_RMSE, cat_MAE, cat_Bias, ...].
+
+    If `group_by_season == True`:
+        The same KPIs are computed **separately for every `season_year` present in
+        `prediction_df`**.  In this mode the function returns two DataFrames:
+
+        df_overall_results : pd.DataFrame
+            One row per season (column `season_year`) containing overall KPIs.
+        df_percentile_data : pd.DataFrame
+            One or more rows *per* season (column `season_year`) holding percentile
+            metrics (top_20, top_10, all_pop, ...).
     """
 
-    # 0) Prepare data
-    # We'll ensure the needed columns exist in prediction_df
-    # Must have cat and cat+"_pred" for each cat, plus 'salary_col' for percentile logic
-    # Then we do overall metrics
-    categories = [
-        cat for cat in dfs_cats + ["fp_fanduel"] if cat in prediction_df.columns
-    ]
-    overall_stats = compute_overall_metrics(prediction_df, categories)
+    #######################################################################
+    #  Mode A – overall KPIs (original behaviour)
+    #######################################################################
+    if not group_by_season:
+        # 0) Prepare data
+        categories = [
+            cat for cat in dfs_cats + ["fp_fanduel"] if cat in prediction_df.columns
+        ]
 
-    # 1) Contest results
-    lineup_metrics = evaluate_lineups_vs_contests(lineup_df, contests_df)
+        overall_stats = compute_overall_metrics(prediction_df, categories)
 
-    # 2) Combine overall + lineup
-    res_dict = {}
-    res_dict.update(overall_stats)
-    res_dict.update(lineup_metrics)
-    # combined_dict["model_pickle"] = os.path.basename(model_pickle_path) if model_pickle_path else "None"
+        # 1) Contest results
+        lineup_metrics = evaluate_lineups_vs_contests(lineup_df, contests_df)
 
-    # 3) Build percentile data
-    #    We'll also include p=100 to represent "all_pop"
-    p_list = top_percentiles + [100]
-    df_percentile_data = compute_percentile_metrics(
-        prediction_df, categories, p_list, salary_col
-    )
+        # 2) Combine overall + lineup
+        res_dict = {**overall_stats, **lineup_metrics}
 
-    # 4) If possible, run SHAP
-    # top_features_dict = {}
-    # if model_pickle_path and shap_data is not None:
-    #     try:
-    #         top_features_dict = compute_shap_importances(model_pickle_path, shap_data, n_top=shap_top_n)
-    #     except Exception as e:
-    #         print(f"[WARN] SHAP failed: {e}")
-    #         top_features_dict = {}
-    # else:
-    #     top_features_dict = {}
+        # 3) Percentile metrics (entire pop)
+        p_list = top_percentiles + [100]
+        df_percentile_data = compute_percentile_metrics(
+            prediction_df, categories, p_list, salary_col
+        ).T.reset_index()
+        res_dict = format_metrics_for_logging(res_dict)
+        res_dict =  {k: (v if pd.notna(v) else -1.0) for k, v in res_dict.items()}
+        res_df = pd.DataFrame([res_dict]).T.reset_index()
+        return res_df, df_percentile_data, res_dict
 
-    return res_dict, df_percentile_data  # , top_features_dict
+    #######################################################################
+    #  Mode B – per-season KPIs
+    #######################################################################
+    seasons = sorted(prediction_df["season_year"].dropna().unique())
+
+    overall_rows = []
+    percentile_frames = []
+
+    for yr in seasons:
+        pred_season_df = prediction_df[prediction_df["season_year"] == yr]
+        lineup_season_df = lineup_df[lineup_df["season_year"] == yr]
+
+        # ---- KPIs for this season -----------------------------
+        cats_here = [cat for cat in dfs_cats + ["fp_fanduel"] if cat in pred_season_df.columns]
+        season_stats = compute_overall_metrics(pred_season_df, cats_here)
+        season_lineup_metrics = evaluate_lineups_vs_contests(lineup_season_df, contests_df)
+
+        row = {"season_year": yr}
+        row.update(season_stats)
+        row.update(season_lineup_metrics)
+        overall_rows.append(row)
+
+        # ---- percentile metrics -------------------------------
+        p_list = top_percentiles + [100]
+        df_p = compute_percentile_metrics(pred_season_df, cats_here, p_list, salary_col)
+        df_p.insert(0, "season_year", yr)
+        percentile_frames.append(df_p)
+
+    df_overall_results = pd.DataFrame(overall_rows).T.reset_index()
+    df_percentile_data = pd.concat(percentile_frames, ignore_index=True).T.reset_index()
+
+    return df_overall_results, df_percentile_data
 
 # trying this script out for better visualization of KPI's of outputs on mlflow and artifacts etc
 def format_metrics_for_logging(metrics):
