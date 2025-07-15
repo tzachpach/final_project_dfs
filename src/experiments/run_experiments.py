@@ -81,63 +81,67 @@ def run_one_cfg(cfg):
 
         t0 = time.time()
         print(f"Running {cfg['run_name']}...")
+
+        # ---------------------------------------------------------
+        # 1) Generate predictions
+        # ---------------------------------------------------------
         preds = get_predictions_df(cfg, worker_enriched_df)
+
         logging.info(f"Predictions {cfg['run_name']} complete")
         _log_progress(cfg['run_name'], 'Prediction')
 
-        if preds.empty:
-            mlflow.log_metric("skip_empty", 1)
-            print(f"Empty predictions for {cfg['run_name']}. Skipping.")
-            return "SKIPPED"
-        
+        # Ensure run output directory exists once
+        base_run_dir = Path("results") / cfg["run_name"]
+        base_run_dir.mkdir(parents=True, exist_ok=True)
+
+        def _save_and_log(df: pd.DataFrame, rel_name: str):
+            """Save DataFrame under base_run_dir / rel_name and log to MLflow."""
+            fpath = base_run_dir / rel_name
+            # Ensure parent directories exist
+            fpath.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(fpath, index=False)
+            mlflow.log_artifact(fpath)
+            return fpath
+
+        _save_and_log(preds, "predictions.csv")
+
+        # ---------------------------------------------------------
+        # 2) Build optimal lineup from predictions
+        # ---------------------------------------------------------
         lineup = get_lineup(preds)
         logging.info(f"Optimization {cfg['run_name']} complete")
         _log_progress(cfg['run_name'], 'Lineup')
 
-        kpis, pct = evaluate_results(preds, lineup, worker_contests_df)
+        _save_and_log(lineup, "lineup.csv")
+
+        # ---------------------------------------------------------
+        # 3) Evaluate results (overall KPIs & percentiles)
+        # ---------------------------------------------------------
+        kpis_df, pct_df, kpis_dict = evaluate_results(
+            preds, lineup, worker_contests_df, group_by_season=False
+        )
+
+        # Additionally, compute per-season KPIs
+        season_kpis_df, season_pct_df = evaluate_results(
+            preds, lineup, worker_contests_df, group_by_season=True
+        )
         logging.info(f"Evaluation {cfg['run_name']} complete")
         _log_progress(cfg['run_name'], 'Evaluation')
 
-        clean_kpis = {k: (v if pd.notna(v) else -1.0) for k, v in kpis.items()}
+        # Save detailed KPI artefacts first (before logging to MLflow)
+        _save_and_log(kpis_df,       "metrics/kpis_overall.csv")
+        _save_and_log(pct_df,        "metrics/percentiles_overall.csv")
+        _save_and_log(season_kpis_df, "metrics/kpis_by_season.csv")
+        _save_and_log(season_pct_df,  "metrics/percentiles_by_season.csv")
 
-        mlflow.log_metrics(clean_kpis)
+        # ---------------------------------------------------------
+        # 4) Log numeric metrics to MLflow (filter out non-numeric)
+        # ---------------------------------------------------------
+        numeric_metrics = {k: float(v) for k, v in kpis_dict.items() if isinstance(v, (int, float))}
+        if numeric_metrics:
+            mlflow.log_metrics(numeric_metrics)
+
         mlflow.log_metric("runtime_sec", round(time.time() - t0, 2))
-
-        formatted_kpis = format_metrics_for_logging(clean_kpis)
-        # Log the formatted metrics as tags so they appear as-is in the UI (MLflow metrics must be float)
-        for key, value in formatted_kpis.items():
-            mlflow.set_tag(key + "_formatted", value)
-
-        # Isolate each run's output to avoid conflicts
-        base_run_dir = Path("results") / cfg["run_name"]
-        base_run_dir.mkdir(parents=True, exist_ok=True)
-
-        # Save KPIs
-        kpis_path = base_run_dir / "kpis.csv"
-        pd.DataFrame([kpis]).to_csv(kpis_path, index=False)
-        mlflow.log_artifact(kpis_path)
-
-        # Save predictions
-        preds_path = base_run_dir / "predictions.csv"
-        preds.to_csv(preds_path, index=False)
-
-        lineup_path = base_run_dir / "lineup.csv"
-        lineup.to_csv(lineup_path, index=False)
-
-        # Log prediction artifact to MLflow
-        mlflow.log_artifact(preds_path)
-        
-        kpis_dir = base_run_dir / Path("metrics")
-        kpis_dir.mkdir(parents=True, exist_ok=True)
-
-        # save artefacts
-        pct_path = kpis_dir / "percentiles.csv"
-        pct.to_csv(pct_path, index=False)
-        mlflow.log_artifact(pct_path)
-
-        kpi_path = kpis_dir / "kpis.csv"
-        pd.DataFrame([clean_kpis]).to_csv(kpi_path, index=False)
-        mlflow.log_artifact(kpi_path)
         
         return "SUCCESS"
 
@@ -202,7 +206,7 @@ def main():
     # --- Data preparation is now done once in the main process ---
     print("Loading & preparing data...")
     pre = preprocess_pipeline()
-    pre = pre[pre.season_year.isin(["2016-17", "2017-18"])].sort_values("game_date")
+    pre = pre.sort_values("game_date")
     enriched = enrich_pipeline(pre)
     contests = pd.read_csv(
         os.path.join(
@@ -223,7 +227,7 @@ def main():
     print(f"Found {len(configs)} configurations to run.")
 
     # Use all but 2 CPUs for safety, with a minimum of 1
-    num_processes = max(1, multiprocessing.cpu_count() - 2)
+    num_processes = 3 #max(1, multiprocessing.cpu_count() - 2)
     print(f"Running {len(configs)} configs on {num_processes} processes...")
     print("Each run's output is being saved to a log file in artifacts/run_logs/")
 
